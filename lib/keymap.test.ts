@@ -217,11 +217,19 @@ test("L links the selection to the thread", () => {
   assert.equal(handleKey(initialKeymapState, { key: "l" }, "list").command?.type, "label");
 });
 
-test("help groups follow navigate / create / edit / view / thread", () => {
+test("help groups follow navigate / tabs / create & edit / view", () => {
   assert.deepEqual(
     BINDING_GROUPS.map((group) => group.title),
-    ["Navigate", "Create", "Edit", "View", "Thread", "In text fields"],
+    ["Navigate", "Tabs", "Create & edit", "View", "In text fields"],
   );
+});
+
+// The overlay keys each row by its label, so they must not repeat in a group.
+test("labels are unique inside a group", () => {
+  for (const group of BINDING_GROUPS) {
+    const labels = group.bindings.map((binding) => binding.label);
+    assert.equal(new Set(labels).size, labels.length, group.title);
+  }
 });
 
 test("every single key the list claims is in the help", () => {

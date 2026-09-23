@@ -255,32 +255,32 @@ export const BINDING_GROUPS: readonly BindingGroup[] = [
       { keys: ["pgup"], label: "page up" },
       { keys: ["enter"], label: "open detail" },
       { keys: ["esc"], label: "back / clear filter" },
+    ],
+  },
+  {
+    title: "Tabs",
+    bindings: [
       { keys: ["["], label: "prev tab" },
       { keys: ["]"], label: "next tab" },
       { keys: ["alt-["], label: "move tab left" },
       { keys: ["alt-]"], label: "move tab right" },
-      { keys: ["?"], label: "help" },
     ],
   },
   {
-    title: "Create",
+    title: "Create & edit",
     bindings: [
       { keys: ["n"], label: "new issue" },
       { keys: ["N"], label: "new child" },
-    ],
-  },
-  {
-    title: "Edit",
-    bindings: [
       { keys: ["! 0…4"], label: "priority P0–P4" },
       { keys: ["! -", "! ⌫"], label: "clear priority" },
       { keys: ["e"], label: "edit title" },
       { keys: ["b"], label: "edit body" },
+      { keys: ["l"], label: "labels (-name removes)" },
+      { keys: ["c"], label: "comment" },
       { keys: ["x"], label: "close" },
       { keys: ["X"], label: "close as done" },
       { keys: ["r"], label: "reopen" },
-      { keys: ["c"], label: "comment" },
-      { keys: ["l"], label: "labels (-name removes)" },
+      { keys: ["L"], label: "link to thread" },
     ],
   },
   {
@@ -294,11 +294,8 @@ export const BINDING_GROUPS: readonly BindingGroup[] = [
       { keys: ["←"], label: "collapse / parent" },
       { keys: ["E"], label: "expand/collapse all" },
       { keys: ["y"], label: "copy project#id" },
+      { keys: ["?"], label: "help" },
     ],
-  },
-  {
-    title: "Thread",
-    bindings: [{ keys: ["L"], label: "link to thread" }],
   },
   {
     title: "In text fields",

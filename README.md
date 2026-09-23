@@ -70,27 +70,27 @@ The list takes keyboard focus.
 | | `pgdn` / `pgup` | page down / up |
 | | `enter` | open detail (narrow: full width) |
 | | `esc` | back / clear filter |
-| | `[` / `]` | prev / next tab |
+| Tabs | `[` / `]` | prev / next tab |
 | | `alt-[` / `alt-]` | move tab left / right (saves the order) |
-| | `?` | help |
-| Create | `n` | new issue: inline row at the top. `enter` to save, `⇧enter` or `ctrl-o` to add a body, `esc` to cancel. The new issue is selected, so `!` works right away |
+| Create & edit | `n` | new issue: inline row at the top. `enter` to save, `⇧enter` or `ctrl-o` to add a body, `esc` to cancel. The new issue is selected, so `!` works right away |
 | | `N` | new child of the selection |
-| Edit | `! 0`…`! 4` | priority P0–P4 |
+| | `! 0`…`! 4` | priority P0–P4 |
 | | `! -`, `! ⌫` | clear priority |
 | | `e` | edit title |
 | | `b` | edit body (markdown textarea; `ctrl-o` or `⌘enter` to save, `esc` twice to discard) |
+| | `l` | labels: `name` adds, `-name` removes; `tab` to complete |
+| | `c` | comment |
 | | `x` | close: `d` done, `w` wontfix, `u` duplicate of…, `s` superseded by…, with a message |
 | | `X` | close as done, no dialog |
 | | `r` | reopen |
-| | `c` | comment |
-| | `l` | labels: `name` adds, `-name` removes; `tab` to complete |
+| | `L` | link to thread (thread panel) |
 | View | `s` | cycle open/all/closed |
 | | `/` | filter by title, label or short id (`enter` to keep, `esc` to clear) |
 | | `v` | nested/flat |
 | | `space` / `→` / `←` | expand/collapse, expand, collapse / parent |
 | | `E` | expand/collapse all |
 | | `y` | copy `project#abc4` |
-| Thread | `L` | link to thread (thread panel) |
+| | `?` | help |
 | Text fields | `enter` | save (one-line) |
 | | `ctrl-o`, `⌘enter` | save |
 | | `esc` | cancel (twice if you typed something) |
