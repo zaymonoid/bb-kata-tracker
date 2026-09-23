@@ -717,7 +717,9 @@ It did not recur in T2–T6. No fix was made.
 - **Row highlight**: list rows are `mx-1 … rounded-md px-2` instead of `px-3`,
   so the selection and hover background sit clear of the pane border and have
   the same rounding. The text position and the 32px row height are unchanged
-  (the 4px margin replaces 4px of padding). Both surfaces get it.
+  (the 4px margin replaces 4px of padding). The scroller adds `py-1`, so the
+  first row's highlight does not sit flush against the tab strip. Both surfaces
+  get it.
 
 ### Verified live (2026-09-23, headless Chromium 1600×1000)
 

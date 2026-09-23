@@ -166,7 +166,8 @@ export const IssueList = forwardRef<HTMLDivElement, IssueListProps>(function Iss
         if (event.target === event.currentTarget) onFocus();
       }}
       className={cn(
-        "h-full min-h-0 overflow-y-auto outline-none",
+        // py-1 keeps the first and last row's inset highlight off the edges.
+        "h-full min-h-0 overflow-y-auto py-1 outline-none",
         focused && "ring-1 ring-inset ring-ring/40",
       )}
     >
