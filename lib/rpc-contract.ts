@@ -21,6 +21,8 @@ const body = z.string().max(65_536);
 const label = z.string().trim().min(1).max(100);
 const idempotencyKey = z.string().min(8).max(128);
 const bbId = z.string().regex(/^[a-z]+_[a-z0-9]{1,64}$/u, "Expected a bb id");
+/** Which panel's split is meant: only the nav page resizes today. */
+const splitSurface = z.enum(["nav"]);
 
 const boundProjectSchema = z.object({ id: z.number().int(), uid: z.string(), name: z.string() });
 const bindingSchema = z.object({
@@ -140,6 +142,22 @@ export const rpcContract = defineRpcContract({
   "thread.unlinkIssue": {
     input: z.object({ threadId: bbId }).strict(),
     output: threadBindingSchema,
+  },
+
+  // ---- layout ----
+  /**
+   * The panel's list/detail split, stored per surface in the plugin's own kv
+   * so it follows the user across browser tabs and reloads. `listFraction` is
+   * a fraction of the panel width (it survives a resize), null when nothing
+   * has been saved yet.
+   */
+  "layout.get": {
+    input: z.object({ surface: splitSurface }).strict(),
+    output: z.object({ listFraction: z.number().nullable() }),
+  },
+  "layout.set": {
+    input: z.object({ surface: splitSurface, listFraction: z.number().gt(0).lt(1) }).strict(),
+    output: z.object({ listFraction: z.number() }),
   },
 
   /** Labels used in the project, for the label typeahead. */

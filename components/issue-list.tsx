@@ -47,7 +47,9 @@ const IssueRow = memo(function IssueRow({
       }}
       style={{ height: ROW_HEIGHT }}
       className={cn(
-        "flex cursor-default items-center gap-2 px-3 text-sm",
+        // mx-1 + px-2 keeps the old px-3 text position while the selection and
+        // hover background stay clear of the pane border.
+        "mx-1 flex cursor-default items-center gap-2 rounded-md px-2 text-sm",
         selected ? "bg-accent text-accent-foreground" : "hover:bg-muted/60",
         !row.match && "opacity-60",
       )}

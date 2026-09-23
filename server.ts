@@ -23,6 +23,7 @@ import { buildKataCli } from "./lib/cli.ts";
 import { createKataService } from "./lib/kata-service.ts";
 import type { KataIssue, KataProject, KataRawIssue } from "./lib/kata-types.ts";
 import { rpcContract } from "./lib/rpc-contract.ts";
+import { readFraction } from "./lib/split.ts";
 import { KATA_CHANNEL, type KataSignal } from "./lib/signals.ts";
 import {
   agentInstructions,
@@ -41,6 +42,9 @@ export { createBindingResolver, readThreadLink } from "./lib/workspace.ts";
 const REBIND_CHANGES = new Set(["project-created", "project-deleted", "project-sources-changed", "project-updated"]);
 
 const uidList = z.array(z.string().min(1).max(64)).max(64);
+
+/** kv key for one surface's list/detail split. */
+const splitKey = (surface: string) => `layout.split.${surface}`;
 
 /** Parse the `includedProjects` setting; invalid JSON reads as empty. */
 function parseIncluded(value: string): string[] {
@@ -356,6 +360,14 @@ export default async function plugin(bb: BbPluginApi) {
       await bb.sdk.threads.updatePluginMetadata({ threadId, remove: [...LINK_KEYS] });
       publish({ type: "thread.link", threadId });
       return threadBinding(threadId);
+    },
+
+    "layout.get": async ({ surface }) => ({
+      listFraction: readFraction(await bb.storage.kv.get(splitKey(surface))),
+    }),
+    "layout.set": async ({ surface, listFraction }) => {
+      await bb.storage.kv.set(splitKey(surface), listFraction);
+      return { listFraction };
     },
 
     "labels.list": async ({ projectUid }) => {

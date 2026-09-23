@@ -16,7 +16,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
   useRealtime,
   useRealtimeConnectionState,
@@ -74,6 +74,12 @@ import {
   visitProject,
 } from "@/lib/viewer-store";
 import type { IssueTarget } from "@/lib/refs";
+import {
+  clampFraction,
+  DEFAULT_LIST_FRACTION,
+  fractionFromPointer,
+  readFraction,
+} from "@/lib/split";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { EmptyState, Kbd } from "@/components/issue-bits";
@@ -158,6 +164,19 @@ export interface KataPanelScope {
 /** Requests from a deliberate open (chip, palette, header) for the next thread panel to take focus. */
 const SCOPED_FOCUS_WINDOW_MS = 3000;
 
+/** Mirror of the nav page's split, read before the RPC answers (first paint). */
+const SPLIT_STORAGE_KEY = "kata.split.nav";
+/** The host may move focus during a route change; claim it again after the frame. */
+const FOCUS_CLAIM_MS = 150;
+
+function storedFraction(): number | null {
+  try {
+    return readFraction(window.localStorage.getItem(SPLIT_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
 export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}) {
   const rpc = useRpc<KataRpcContract>();
   const scopedUid = scope?.projectUid ?? null;
@@ -183,6 +202,16 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
   /** Focus was in the panel and has not moved to anything else (it may sit on <body> after the list re-rendered). */
   const wantsFocus = useRef(false);
   const [width, setWidth] = useState<number | null>(null);
+  /** Nav page only: the list's share of the panel, durable per user (layout.get/set). */
+  const [listFraction, setListFraction] = useState(() =>
+    scope ? DEFAULT_LIST_FRACTION : (storedFraction() ?? DEFAULT_LIST_FRACTION),
+  );
+  const [dragging, setDragging] = useState(false);
+  /** A drag that beat the RPC answer wins over it. */
+  const splitTouched = useRef(false);
+  const splitRowRef = useRef<HTMLDivElement | null>(null);
+  const splitMetrics = useRef({ left: 0, width: 0 });
+  const focusBeforeDrag = useRef<HTMLElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const detailRef = useRef<HTMLDivElement | null>(null);
@@ -328,6 +357,81 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
     return () => observer.disconnect();
   }, []);
   const narrow = width !== null && width < NARROW_PX;
+  /** The boundary is dragged only on the nav page's wide layout. */
+  const splitWide = scopedUid === null && !narrow;
+  const splitFraction = clampFraction(listFraction, width ?? 0);
+
+  // ---- the list/detail split (nav page) ------------------------------------
+
+  // The stored split follows the user across tabs and reloads; localStorage
+  // only carries it to the first paint, before this answers.
+  useEffect(() => {
+    if (scopedUid !== null) return;
+    let cancelled = false;
+    void rpc.call("layout.get", { surface: "nav" }).then(
+      ({ listFraction: stored }) => {
+        const fraction = readFraction(stored);
+        if (cancelled || fraction === null || splitTouched.current) return;
+        setListFraction(fraction);
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [rpc, scopedUid]);
+
+  const saveSplit = useCallback(
+    (fraction: number) => {
+      if (readFraction(fraction) === null) return;
+      try {
+        window.localStorage.setItem(SPLIT_STORAGE_KEY, String(fraction));
+      } catch {
+        // Private mode: the RPC still carries it.
+      }
+      void rpc.call("layout.set", { surface: "nav", listFraction: fraction }).catch(() => {});
+    },
+    [rpc],
+  );
+
+  const startDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const row = splitRowRef.current;
+    if (event.button !== 0 || !row) return;
+    const rect = row.getBoundingClientRect();
+    splitMetrics.current = { left: rect.left, width: rect.width };
+    focusBeforeDrag.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // A pointerdown on the handle would hand focus to the panel root.
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    splitTouched.current = true;
+    setDragging(true);
+  };
+
+  const moveDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging) return;
+    const { left, width: rowWidth } = splitMetrics.current;
+    setListFraction(fractionFromPointer(event.clientX, left, rowWidth));
+  };
+
+  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setDragging(false);
+    saveSplit(clampFraction(listFraction, splitMetrics.current.width || (width ?? 0)));
+    // The keyboard stays where it was before the drag.
+    const previous = focusBeforeDrag.current;
+    if (previous && previous.isConnected && document.activeElement !== previous) {
+      previous.focus({ preventScroll: true });
+    }
+  };
+
+  const resetSplit = () => {
+    splitTouched.current = true;
+    setListFraction(DEFAULT_LIST_FRACTION);
+    saveSplit(DEFAULT_LIST_FRACTION);
+  };
 
   // Narrow: the pane that is shown gets focus when the panel (or nothing) had it.
   useLayoutEffect(() => {
@@ -346,6 +450,28 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
     const lost = active === rootRef.current || ((active === document.body || active === null) && wantsFocus.current);
     if (listShown && lost && pane === "list") listRef.current?.focus({ preventScroll: true });
   }, [listShown, activeUid, statusView, pane]);
+
+  // The nav page is a page of its own: opening it (the sidebar row, ⌘⇧K, or
+  // navigating back to it) puts the keyboard on the list, so `j` works without
+  // a click. The host moves focus during a route change, so the claim is made
+  // again after the frame and once the list has rows. A thread panel never
+  // claims focus (T6): it would take it from the composer.
+  const claimFocus = useCallback(() => {
+    if (scopedUid !== null) return;
+    const active = document.activeElement;
+    if (rootRef.current?.contains(active) || isTypingTarget(active)) return;
+    focusList();
+  }, [scopedUid, focusList]);
+  useEffect(() => {
+    if (scopedUid !== null) return;
+    claimFocus();
+    const frame = requestAnimationFrame(claimFocus);
+    const timer = setTimeout(claimFocus, FOCUS_CLAIM_MS);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [scopedUid, claimFocus, listShown]);
 
   // The palette command's focus request is for the nav page. A thread panel
   // does not take focus from the composer by itself, only when it was opened
@@ -913,12 +1039,19 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
     );
   } else {
     body = (
-      <div className="flex min-h-0 flex-1">
+      <div ref={splitRowRef} className="flex min-h-0 flex-1">
         <div
           className={cn(
             "flex min-h-0 flex-col",
-            narrow ? (pane === "detail" ? "hidden" : "w-full") : "w-[45%] min-w-72 max-w-2xl border-r border-border",
+            narrow
+              ? pane === "detail"
+                ? "hidden"
+                : "w-full"
+              : splitWide
+                ? "shrink-0"
+                : "w-[45%] min-w-72 max-w-2xl border-r border-border",
           )}
+          {...(splitWide ? { style: { width: `${splitFraction * 100}%` } } : {})}
         >
           {showFilter && activeUid ? (
             <FilterBar
@@ -1017,6 +1150,28 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
             />
           ) : null}
         </div>
+        {splitWide ? (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the issue list"
+            onPointerDown={startDrag}
+            onPointerMove={moveDrag}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onDoubleClick={resetSplit}
+            title="drag: resize · double-click: reset"
+            className="group relative z-10 w-1 shrink-0 cursor-col-resize touch-none select-none"
+          >
+            <span
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-primary",
+                dragging && "bg-primary",
+              )}
+            />
+          </div>
+        ) : null}
         <div className={cn("min-h-0 min-w-0 flex-1 flex-col", narrow && pane !== "detail" ? "hidden" : "flex")}>
           {narrow ? (
             <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-2 text-xs text-muted-foreground">
@@ -1078,7 +1233,11 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
         // Focus went somewhere else on purpose (null: the window, or a removed element).
         if (next !== null) wantsFocus.current = false;
       }}
-      className="relative flex h-full min-h-0 flex-1 flex-col outline-none"
+      className={cn(
+        "relative flex h-full min-h-0 flex-1 flex-col outline-none",
+        // While dragging, the cursor stays the handle's wherever the pointer goes.
+        dragging && "cursor-col-resize select-none",
+      )}
     >
       {scopedUid === null ? (
         <ProjectTabs

@@ -48,6 +48,9 @@ The list takes keyboard focus.
   stays where it was (with its new status) until you leave the tab or change the
   status view. A row only jumps if the issue changes somewhere else. This
   makes `r` an undo for `x`.
+- **Resizable split.** On the Kata page, drag the line between the list and the
+  detail (double-click resets it). The width is kept as a share of the panel, so
+  it survives a window resize, and it follows you across tabs and reloads.
 - **Narrow widths.** Below 720px, which includes the thread side panel, the
   list and the detail take turns at full width. `Enter` opens the detail and
   `Esc` goes back (or use the "← Issues" button).

@@ -684,6 +684,65 @@ It did not recur in T2–T6. No fix was made.
   prevent that default; `onActivate` and the drop call `focusList()` instead,
   so a click or a drop still leaves the keyboard on the list.
 
+## T9: resizable split, focus on open, inset row highlight
+
+- **The nav page's list/detail boundary is dragged** (`components/kata-panel.tsx`,
+  pointer events, no new dependency). A 4px hit area holding a 1px line, cursor
+  `col-resize`, the line turning `primary` on hover and while dragging.
+  `pointerdown` calls `preventDefault` (a plain click would hand focus to the
+  panel root) and captures the pointer, so a drag that leaves the panel keeps
+  working; the element focused before the drag is refocused at the end. A
+  double-click resets to 45%. The handle renders only where the split exists:
+  the nav page in the wide layout. Narrow (`NARROW_PX`) and the thread side
+  panel are unchanged — the panes still take turns at full width there.
+- **Durable, as a fraction** (`lib/split.ts`, pure and unit tested).
+  `clampFraction(fraction, panelWidth)` applies the minima (list ≥ 280px,
+  detail ≥ 320px) at the panel's current width, so the same stored fraction is
+  honoured at any window size and neither pane collapses; a panel too narrow to
+  hold both minima splits by their ratio, and junk falls back to the default.
+  `fractionFromPointer` maps the pointer to the boundary, `listWidthPx` and
+  `sameFraction` compare what is rendered, and `readFraction` guards anything
+  read back from storage.
+- **Stored server-side**: RPC `layout.get` / `layout.set` (`{surface: "nav"}`)
+  over `bb.storage.kv` (`layout.split.nav`), so the split follows the user
+  across browser tabs and reloads. `localStorage` (`kata.split.nav`) mirrors it
+  for the first paint; the RPC answer wins unless a drag beat it
+  (`splitTouched`). The key is per surface: only the nav page has one today.
+- **The nav page takes the keyboard when it opens.** Its `KataPanel` claims
+  focus on mount, again on the next frame and after 150ms (the host moves focus
+  during a route change), and again when the list first has rows. It never
+  takes focus that is already inside the panel or in a text field. A scoped
+  (thread) panel does not claim focus at all — T6's rule stands, so the
+  composer is safe.
+- **Row highlight**: list rows are `mx-1 … rounded-md px-2` instead of `px-3`,
+  so the selection and hover background sit clear of the pane border and have
+  the same rounding. The text position and the 32px row height are unchanged
+  (the 4px margin replaces 4px of padding). Both surfaces get it.
+
+### Verified live (2026-09-23, headless Chromium 1600×1000)
+
+- `npm run typecheck`, `npm test` (121 pass; `lib/split.test.ts` is new),
+  `bb plugin build`, `bb plugin reload kata`, `bb plugin list` (running, no
+  handler errors).
+- Nav page: dragging the handle moved the list 576 → 830px with the keyboard
+  still on the list. A reload kept 830px; clearing `localStorage` and reloading
+  again still gave 830px, so the value came from the server. At a 1400px
+  viewport the list was 700 of 1080px — the same 0.648 fraction — and at 1200px
+  the minimum detail (320px) took over, with the fraction unharmed on the way
+  back. Dragging past either end stopped at 280px and at 960px (1280 − 320).
+  Double-click put it back to 576px (0.45, in `localStorage` and in
+  `layout.get`). `j`, `k`, `n` + `esc` all worked afterwards, with focus back
+  on the list and no issue created.
+- Focus: navigating to `/plugins/kata/kata` fresh put focus on the list and `j`
+  moved the selection with no click. Clicking **Kata** in the sidebar from the
+  home page did the same, as did ⌘⇧K with the home composer focused. The
+  grippify thread's side panel (639px, narrow) still had no handle and left
+  focus on `<body>`.
+- Below 720px the nav page goes narrow and the handle is gone; widening brings
+  it back.
+- No console errors from the plugin (bb's own environment-status 409s on the
+  grippify thread are unrelated). `includedProjects` is unchanged.
+
 ## File map
 
 | Path | Role |
@@ -713,7 +772,7 @@ It did not recur in T2–T6. No fix was made.
 | `components/thread-header.tsx` | Thread header control, popover, link typeahead |
 | `components/thread-issues-panel.tsx` | "Kata issues" thread panel (scoped `KataPanel`) |
 | `components/ui/popover.tsx` | Vendored from the `@bb` registry (desktop-v0.43.3) |
-| `lib/*.test.ts` | `node --test` units: keymap, tree, optimistic, labels, issue-detail, issue-store, workspace, cli-core, cli, refs, reorder, kata-client |
+| `lib/*.test.ts` | `node --test` units: keymap, tree, optimistic, labels, issue-detail, issue-store, workspace, cli-core, cli, refs, reorder, split, kata-client |
 | `lib/cli-core.ts` | Pure: refs, project precedence, list/create/close request bodies, evidence, formatting, byte bounding |
 | `lib/kata-service.ts` | Operations shared by CLI and tools (resolution, daemon calls, thread link, viewer tabs) |
 | `lib/cli.ts` | `defineCli` spec for `bb kata` |
@@ -721,6 +780,7 @@ It did not recur in T2–T6. No fix was made.
 | `skills/kata/SKILL.md` | Agent-facing conventions and command reference |
 | `lib/refs.ts` | Pure: ref parsing, `::kata-issue` attribute validation, ref extraction from text, panel-param targets, directive text |
 | `lib/reorder.ts` | Pure tab-order moves (drag slot, keyboard shift), shared by the strip and the picker |
+| `lib/split.ts` | Pure list/detail split maths: clamping to the pane minima, pointer → fraction, stored-value guard |
 | `lib/issue-open.ts` | Open an issue (thread panel params → nav fallback), the React bridge, palette dialog store |
 | `hooks/useResolvedIssue.ts` | Shared `issues.resolve` cache with realtime invalidation |
 | `components/issue-chip.tsx` | `::kata-issue` directive chip and its context menu |
