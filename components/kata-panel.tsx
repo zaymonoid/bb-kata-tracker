@@ -106,6 +106,7 @@ const MUTATING = new Set<KeyCommand["type"]>([
   "newChild",
   "setPriority",
   "close",
+  "closeDone",
   "reopen",
   "comment",
   "label",
@@ -651,6 +652,12 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
         if (issue === null) return;
         if (issue.status === "closed") return setFlash(`${issue.short_id} is closed · r: reopen`);
         return setDialog({ kind: "close", issueUid: issue.uid, label: labelOf(issue), error: null });
+      }
+      case "closeDone": {
+        const issue = needIssue();
+        if (issue === null) return;
+        if (issue.status === "closed") return setFlash(`${issue.short_id} is closed · r: reopen`);
+        return submitClose(issue.uid, labelOf(issue), { reason: "done", message: "", targetRef: "" });
       }
       case "reopen": {
         const issue = needIssue();

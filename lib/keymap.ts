@@ -24,6 +24,7 @@ export type KeyCommand =
   | { type: "newChild" }
   | { type: "setPriority"; priority: number | null }
   | { type: "close" }
+  | { type: "closeDone" }
   | { type: "reopen" }
   | { type: "comment" }
   | { type: "label" }
@@ -170,6 +171,8 @@ export function handleKey(
       return idle({ type: "newChild" });
     case "x":
       return idle({ type: "close" });
+    case "X":
+      return idle({ type: "closeDone" });
     case "r":
       return idle({ type: "reopen" });
     case "c":
@@ -274,6 +277,7 @@ export const BINDING_GROUPS: readonly BindingGroup[] = [
       { keys: ["e"], label: "edit title" },
       { keys: ["b"], label: "edit body" },
       { keys: ["x"], label: "close" },
+      { keys: ["X"], label: "close as done" },
       { keys: ["r"], label: "reopen" },
       { keys: ["c"], label: "comment" },
       { keys: ["l"], label: "labels (-name removes)" },

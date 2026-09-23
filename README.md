@@ -77,6 +77,7 @@ The list takes keyboard focus.
 | | `e` | edit title |
 | | `b` | edit body (markdown textarea; `ctrl-o` or `⌘enter` to save, `esc` twice to discard) |
 | | `x` | close: `d` done, `w` wontfix, `u` duplicate of…, `s` superseded by…, with a message |
+| | `X` | close as done, no dialog |
 | | `r` | reopen |
 | | `c` | comment |
 | | `l` | labels: `name` adds, `-name` removes; `tab` to complete |
