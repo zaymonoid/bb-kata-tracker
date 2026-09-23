@@ -70,14 +70,13 @@ export interface IssueDetailProps {
   detailError: string | null;
   /** Optimistic comments still being posted. */
   pendingComments: readonly KataComment[];
-  focused: boolean;
   onFocus: () => void;
   titleOf: (peer: KataLinkPeer) => string | undefined;
   onOpenPeer: (peer: KataLinkPeer) => void;
 }
 
 export const IssueDetail = forwardRef<HTMLDivElement, IssueDetailProps>(function IssueDetail(
-  { issue: listIssue, detail, detailError, pendingComments, focused, onFocus, titleOf, onOpenPeer },
+  { issue: listIssue, detail, detailError, pendingComments, onFocus, titleOf, onOpenPeer },
   ref,
 ) {
   // Prefer the list copy for fields both have (it is refreshed by events) and
@@ -95,10 +94,9 @@ export const IssueDetail = forwardRef<HTMLDivElement, IssueDetailProps>(function
       tabIndex={0}
       onFocus={onFocus}
       aria-label="Issue detail"
-      className={cn(
-        "h-full min-h-0 overflow-y-auto outline-none",
-        focused && "ring-1 ring-inset ring-ring/40",
-      )}
+      // No focus ring: it would draw a second line along every pane boundary.
+      // The divider carries the detail's focus instead (components/kata-panel).
+      className="h-full min-h-0 overflow-y-auto outline-none"
     >
       {issue === null ? (
         <p className="p-6 text-sm text-muted-foreground">No issue selected.</p>

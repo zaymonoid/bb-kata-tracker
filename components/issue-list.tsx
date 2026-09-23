@@ -15,6 +15,7 @@ const MAX_LABELS = 3;
 const IssueRow = memo(function IssueRow({
   row,
   selected,
+  focused,
   pending,
   linked,
   editor,
@@ -23,6 +24,8 @@ const IssueRow = memo(function IssueRow({
 }: {
   row: TreeRow;
   selected: boolean;
+  /** The list has the keyboard: the selected row is shown in full. */
+  focused: boolean;
   /** Linked to the thread this panel sits in. */
   linked: boolean;
   /** Placeholder of a create still in flight. */
@@ -50,7 +53,11 @@ const IssueRow = memo(function IssueRow({
         // mx-1 + px-2 keeps the old px-3 text position while the selection and
         // hover background stay clear of the pane border.
         "mx-1 flex cursor-default items-center gap-2 rounded-md px-2 text-sm",
-        selected ? "bg-accent text-accent-foreground" : "hover:bg-muted/60",
+        selected
+          ? focused
+            ? "bg-accent text-accent-foreground"
+            : "bg-accent/40"
+          : "hover:bg-muted/60",
         !row.match && "opacity-60",
       )}
     >
@@ -165,11 +172,10 @@ export const IssueList = forwardRef<HTMLDivElement, IssueListProps>(function Iss
       onFocus={(event) => {
         if (event.target === event.currentTarget) onFocus();
       }}
-      className={cn(
-        // py-1 keeps the first and last row's inset highlight off the edges.
-        "h-full min-h-0 overflow-y-auto py-1 outline-none",
-        focused && "ring-1 ring-inset ring-ring/40",
-      )}
+      // py-1 keeps the first and last row's inset highlight off the edges. No
+      // focus ring: it would draw a second line along every pane boundary; the
+      // selected row's colour says whether the list has the keyboard.
+      className="h-full min-h-0 overflow-y-auto py-1 outline-none"
     >
       {draftOnTop ? draft.node : null}
       {rows.length === 0 && draft === null ? empty : null}
@@ -178,6 +184,7 @@ export const IssueList = forwardRef<HTMLDivElement, IssueListProps>(function Iss
           <IssueRow
             row={row}
             selected={row.issue.uid === selectedUid}
+            focused={focused}
             pending={isPending(row.issue)}
             linked={row.issue.uid === linkedUid}
             editor={editing?.uid === row.issue.uid ? editing.node : null}

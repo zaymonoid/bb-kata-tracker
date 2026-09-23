@@ -720,6 +720,18 @@ It did not recur in T2–T6. No fix was made.
   (the 4px margin replaces 4px of padding). The scroller adds `py-1`, so the
   first row's highlight does not sit flush against the tab strip. Both surfaces
   get it.
+- **One 1px line per boundary.** The `ring-1 ring-inset` focus rings on the
+  list and the detail drew a rectangle around each pane, so every boundary
+  carried two or three lines (the ring, the divider, the neighbour's border).
+  Both rings are gone. The single lines that remain are the tab strip's
+  `border-b`, the footer's `border-t`, the narrow detail header's `border-b`,
+  and one vertical divider: the resize handle's line in the wide nav layout, or
+  the list pane's `border-r` where there is no handle (a wide *scoped* panel).
+  Narrow layouts have no vertical divider at all — the panes take turns.
+- **Focus without a ring.** The list's selected row is `bg-accent` while the
+  list has the keyboard and `bg-accent/40` when it does not; when the detail
+  has it, the divider turns `ring/50` (the handle's line, or the pane border).
+  The footer's **Click to use the keyboard** still covers the whole panel.
 
 ### Verified live (2026-09-23, headless Chromium 1600×1000)
 
@@ -742,6 +754,12 @@ It did not recur in T2–T6. No fix was made.
   focus on `<body>`.
 - Below 720px the nav page goes narrow and the handle is gone; widening brings
   it back.
+- Borders, checked from the computed styles: on the nav page at 1600×1000 the
+  list, its pane and the detail draw no border and no ring, so the handle's
+  line is the only vertical one and the tab strip's `border-b` the only
+  horizontal one; the footer keeps its single `border-t`. `Enter` tinted the
+  divider and dimmed the selected row, `Esc` put both back. The grippify thread
+  panel (639px) has no handle, no pane border and no ring.
 - No console errors from the plugin (bb's own environment-status 409s on the
   grippify thread are unrelated). `includedProjects` is unchanged.
 

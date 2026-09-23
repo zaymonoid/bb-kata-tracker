@@ -1016,6 +1016,8 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
 
   // ---- render --------------------------------------------------------------
 
+  /** The divider shows which pane has the keyboard (there is no focus ring). */
+  const detailFocused = hasFocus && pane === "detail";
   const pendingText = pendingHint(keyState);
   const hint: Flash | null = pendingText ? { text: pendingText, tone: "info" } : flash;
   const showFilter = filterOpen || filter !== "";
@@ -1049,7 +1051,8 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
                 : "w-full"
               : splitWide
                 ? "shrink-0"
-                : "w-[45%] min-w-72 max-w-2xl border-r border-border",
+                : // No handle here, so this border is the boundary's only line.
+                  cn("w-[45%] min-w-72 max-w-2xl border-r", detailFocused ? "border-ring/50" : "border-border"),
           )}
           {...(splitWide ? { style: { width: `${splitFraction * 100}%` } } : {})}
         >
@@ -1166,7 +1169,8 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
             <span
               aria-hidden
               className={cn(
-                "pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-primary",
+                "pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors group-hover:bg-primary",
+                detailFocused ? "bg-ring/50" : "bg-border",
                 dragging && "bg-primary",
               )}
             />
@@ -1197,7 +1201,6 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
             detail={detail}
             detailError={detailError}
             pendingComments={shownComments}
-            focused={hasFocus && pane === "detail"}
             onFocus={() => setPane("detail")}
             titleOf={titleOf}
             onOpenPeer={openPeer}
