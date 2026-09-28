@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-kata",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Keyboard-first viewer and editor for the local kata issue tracker inside bb, with a bb kata CLI and agent tools.",
   "type": "module",
   "license": "MIT",
