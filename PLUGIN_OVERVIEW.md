@@ -345,9 +345,10 @@ the `::kata-issue` directive, and a message action for refs in prose.
   muted with a tooltip (`not found`, or the reason). It is a leaf directive,
   so it must be on its own line.
   - Click opens the thread panel action `issues` with `params: { issueUid,
-    projectUid, qualifiedId }`. The tab title is `Kata · project#abc4`, so the
-    same issue refocuses its tab and a different issue opens a sibling tab.
-    Where the host declines (no side panel), it falls back to the nav page.
+    projectUid, qualifiedId }`, landing on that issue's detail (T10). The tab
+    title is `Kata · project#abc4`, so the same issue refocuses its tab and a
+    different issue opens a sibling tab. Where the host declines (no side
+    panel), it falls back to the nav page.
   - Right-click (Radix context menu, vendored `components/ui/context-menu.tsx`):
     *Open in Kata panel*, *Copy ref*.
 - **RPC `issues.resolve({refs[1..10], projectId?, threadId?})`** →
@@ -763,6 +764,62 @@ It did not recur in T2–T6. No fix was made.
 - No console errors from the plugin (bb's own environment-status 409s on the
   grippify thread are unrelated). `includedProjects` is unchanged.
 
+## T10: a chip opens the issue's detail
+
+A chip click means "show me this issue", so the thread panel now lands on the
+issue's **detail**, not on the list with a highlighted row (in the narrow side
+panel the panes take turns, so the row was all you saw until you pressed
+enter).
+
+- **The request goes through the store, not `params`** (`lib/scoped-open.ts`,
+  `viewer-store.scopedOpen = {at, target}`, `requestScopedOpen(target)`). It
+  replaces T6's `scopedFocus`, which carried only a timestamp. `openIssue`
+  sends the target before asking the host to open the panel; the header's
+  *Open Kata issues* sends `null`. Going through the store is what makes a
+  second click on the same chip work: the host reuses that issue's tab with
+  identical `params`, so nothing in the panel's props changes.
+- **`scopedOpenPane(request, panel)`** is pure and unit tested
+  (`lib/scoped-open.test.ts`): no target → `"list"`; a target → `"detail"` for
+  the panel pinned to that project whose own target is that issue (or which
+  has none); `null` (leave it alone) for any other panel.
+- **Only the visible panel answers.** The host keeps the other tabs' panels
+  mounted but hidden, and the store is global, so a hidden tab would otherwise
+  consume the request and focus its own list. `isVisible(rootRef)`
+  (`checkVisibility()`) gates the consumer. Without it, *Open Kata issues*
+  opened the right tab but left focus in the composer.
+- **The consumer** (`components/kata-panel.tsx`) selects the target, sets it as
+  the pending target (so a closed issue still switches the tab to *all*), then
+  `showDetail()`: `pane = "detail"` plus a `wantsDetailFocus` ref that a layout
+  effect honours once the detail is rendered — in the narrow layout it is still
+  `hidden` when the click is handled, and focus comes from outside the panel
+  (the chip), so the existing "focus the shown pane" effect does not fire.
+  `esc` returns to the list with that row selected, as before.
+- **The header popover's linked issue is now a button** and opens like a chip
+  (`openIssue`), while *Open Kata issues* keeps its old landing (list, focused,
+  linked issue preselected). The nav page is untouched: it still uses
+  `navTarget` and `focusRequest`.
+- No new key hints; the narrow detail already shows `esc back`.
+
+### Verified live (2026-09-28, headless Chromium 1400×900)
+
+`npm run typecheck`, `npm test` (125 pass, 3 new), `bb plugin build`,
+`bb plugin reload kata`. A temporary bb project on a temp directory holding a
+`.kata.toml` for `bb-plugin-kata-scratch`, one thread, one scratch issue
+(`#nas2`), all deleted afterwards; `includedProjects` untouched.
+
+- The assistant message's `::kata-issue` chip opened the side panel (1400px
+  window, ~540px panel, narrow) straight on the detail: title, ids and body,
+  with `← Issues  esc back`. `esc` showed the list with that row selected, and
+  clicking the chip again brought the detail back.
+- *Open Kata issues* opened a second tab on the list with the keyboard on it
+  (the footer read `? help`, not "Click to use the keyboard") while the chip's
+  tab stayed on its issue. Clicking the chip with that other tab in front
+  re-activated the issue's tab on its detail.
+- The header popover's linked issue (linked with `bb kata link`) opened the
+  detail, focused.
+- Nav page: the sidebar row focused the list, `j` moved the selection and `]`
+  switched tabs. No console errors from the plugin.
+
 ## File map
 
 | Path | Role |
@@ -779,6 +836,7 @@ It did not recur in T2–T6. No fix was made.
 | `lib/optimistic.ts` | Pure reconcile of server list + confirmed + lingering + pending edits |
 | `lib/tree.ts` | Pure nested/flat rows with box-drawing guides, filter, orphan handling |
 | `lib/close-rules.ts` | Close reasons and the daemon's message/evidence rules (zod-free) |
+| `lib/scoped-open.ts` | Pure: which pane a deliberate thread-panel open lands on (T10) |
 | `lib/labels.ts` | `l` input grammar |
 | `app.tsx` | `navPanel`, thread header action, thread panel action, palette command, navigator bridge overlay |
 | `components/kata-panel.tsx` | Panel orchestration: data, realtime, focus, keys, commands |
@@ -858,9 +916,6 @@ bb plugin logs kata
   for non-TUI closes, and it is deliberate.
 - T5: plain `project#abc4` text in messages is not turned into links (there
   is no SDK hook for that). Use the directive or the selection action.
-- T5: clicking a chip whose tab is already open only refocuses that tab
-  (identical params). If you moved the selection inside it, the chip does not
-  select the issue again.
 - T5: each different issue opened from chips gets its own tab (the host keys
   tabs by params). That is deliberate, but the tabs can pile up.
 - `bb plugin list` counts handler errors, including the RPC 500s from the

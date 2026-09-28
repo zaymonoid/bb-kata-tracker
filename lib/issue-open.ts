@@ -9,7 +9,7 @@
 import type { BbNavigate, PluginRpcClient, PluginTargetedPanelActionOpenOptions } from "@get-bb/plugin-sdk/app";
 import type { IssueSummary, KataRpcContract } from "./rpc-contract";
 import type { IssueTarget } from "./refs";
-import { patch, requestNavIssue, requestPanelFocus, requestScopedFocus } from "./viewer-store";
+import { patch, requestNavIssue, requestPanelFocus, requestScopedOpen } from "./viewer-store";
 
 export const PANEL_PATH = "kata";
 export const ISSUES_ACTION_ID = "issues";
@@ -39,10 +39,11 @@ export function openIssue(
   via: { openPanel?: ((options: PluginTargetedPanelActionOpenOptions) => boolean) | null; navigate?: BbNavigate | null },
 ): "panel" | "nav" | "none" {
   if (via.openPanel) {
-    // Opened on purpose: the panel takes keyboard focus when it mounts (or is already open).
-    requestScopedFocus();
+    // Opened on purpose: the panel takes keyboard focus when it mounts (or is
+    // already open) and lands on this issue's detail.
+    requestScopedOpen(target);
     if (via.openPanel(panelOptions(target))) return "panel";
-    patch({ scopedFocus: null });
+    patch({ scopedOpen: null });
   }
   const navigate = via.navigate ?? bridge.navigate;
   if (!navigate) return "none";

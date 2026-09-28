@@ -74,6 +74,7 @@ import {
   visitProject,
 } from "@/lib/viewer-store";
 import type { IssueTarget } from "@/lib/refs";
+import { scopedOpenPane, SCOPED_OPEN_WINDOW_MS } from "@/lib/scoped-open";
 import {
   clampFraction,
   DEFAULT_LIST_FRACTION,
@@ -150,6 +151,12 @@ function isSignal(value: unknown): value is KataSignal {
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+/** On screen, rather than in a thread panel tab the host is holding hidden. */
+function isVisible(element: HTMLElement | null): boolean {
+  if (element === null) return false;
+  return typeof element.checkVisibility === "function" ? element.checkVisibility() : element.offsetParent !== null;
+}
+
 /** Pins the panel to one project (a thread's bound kata project). */
 export interface KataPanelScope {
   projectUid: string;
@@ -160,9 +167,6 @@ export interface KataPanelScope {
   /** An issue to show (panel `params`); wins over the linked issue. */
   target?: IssueTarget | null;
 }
-
-/** Requests from a deliberate open (chip, palette, header) for the next thread panel to take focus. */
-const SCOPED_FOCUS_WINDOW_MS = 3000;
 
 /** Mirror of the nav page's split, read before the RPC answers (first paint). */
 const SPLIT_STORAGE_KEY = "kata.split.nav";
@@ -201,6 +205,8 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
   const [hasFocus, setHasFocus] = useState(false);
   /** Focus was in the panel and has not moved to anything else (it may sit on <body> after the list re-rendered). */
   const wantsFocus = useRef(false);
+  /** A detail pane the keyboard should take once it is rendered (narrow: it was hidden). */
+  const wantsDetailFocus = useRef(false);
   const [width, setWidth] = useState<number | null>(null);
   /** Nav page only: the list's share of the panel, durable per user (layout.get/set). */
   const [listFraction, setListFraction] = useState(() =>
@@ -345,6 +351,25 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
     setPane("list");
   }, []);
 
+  /**
+   * Show the selected issue's detail with the keyboard on it: what a chip (or
+   * the palette) opening this panel asks for. In the narrow layout the detail
+   * is still hidden this render, so the focus is finished in a layout effect.
+   */
+  const showDetail = useCallback(() => {
+    wantsFocus.current = true;
+    wantsDetailFocus.current = true;
+    setPane("detail");
+    detailRef.current?.focus({ preventScroll: true });
+  }, []);
+  useLayoutEffect(() => {
+    if (!wantsDetailFocus.current || pane !== "detail") return;
+    const el = detailRef.current;
+    if (!el) return;
+    wantsDetailFocus.current = false;
+    el.focus({ preventScroll: true });
+  }, [pane]);
+
   // Width decides the layout; a thread side panel is usually narrow.
   useLayoutEffect(() => {
     const el = rootRef.current;
@@ -480,13 +505,6 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
   useEffect(() => {
     if (focusRequest !== null) focusList();
   }, [focusRequest, ready, focusList]);
-  const scopedFocus = scopedUid !== null ? view.scopedFocus : null;
-  useEffect(() => {
-    if (scopedFocus === null || Date.now() - scopedFocus.at > SCOPED_FOCUS_WINDOW_MS) return;
-    patch({ scopedFocus: null });
-    focusList();
-  }, [scopedFocus, focusList]);
-
   // Preselect the panel's target, else the thread's linked issue (when either changes, too).
   const linkedUid = scope?.linkedIssueUid ?? null;
   const scopeTarget = scope?.target ?? null;
@@ -497,6 +515,27 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
     selectIssue(scopedUid, preselectUid);
     if (scopeTarget) setPendingTarget(scopeTarget);
   }, [scopedUid, preselectUid, scopeTarget]);
+
+  // A deliberate open of this panel. With an issue (a chip, the palette, the
+  // header's linked issue) it lands on that issue's detail, so the narrow
+  // layout shows it instead of a highlighted row; `esc` then returns to the
+  // list. Without one ("Open Kata issues") it lands on the list, as before.
+  // The request goes through the store, not `params`, so clicking the same
+  // chip again re-targets a panel the host is already showing.
+  const scopedOpen = scopedUid !== null ? view.scopedOpen : null;
+  useEffect(() => {
+    if (scopedOpen === null || Date.now() - scopedOpen.at > SCOPED_OPEN_WINDOW_MS) return;
+    // The host keeps the other tabs' panels mounted but hidden; only the tab
+    // on screen answers, and it leaves the request alone until it is shown.
+    if (!isVisible(rootRef.current)) return;
+    const landing = scopedOpenPane(scopedOpen, { projectUid: scopedUid, target: scopeTarget });
+    if (landing === null) return;
+    patch({ scopedOpen: null });
+    if (landing === "list" || scopedOpen.target === null) return focusList();
+    selectIssue(scopedOpen.target.projectUid, scopedOpen.target.issueUid);
+    setPendingTarget(scopedOpen.target);
+    showDetail();
+  }, [scopedOpen, scopedUid, scopeTarget, focusList, showDetail]);
 
   // The nav page's target (issue chip or palette outside a thread): consumed once.
   const navTarget = scopedUid === null ? view.navTarget : null;

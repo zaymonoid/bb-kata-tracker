@@ -13,6 +13,7 @@ import type { KataRpcContract } from "./rpc-contract";
 import type { KataIssue, KataIssueDetail, KataLinkPeer, KataProject } from "./kata-types";
 import { reconcile, type Lingering, type PendingEdit, type StatusView } from "./optimistic";
 import type { IssueTarget } from "./refs";
+import type { ScopedOpenRequest } from "./scoped-open";
 
 export type Rpc = PluginRpcClient<KataRpcContract>;
 export type { StatusView } from "./optimistic";
@@ -48,8 +49,12 @@ export interface ViewerState {
   daemon: { available: boolean; message: string | null };
   /** Bumped to ask the mounted panel to take keyboard focus. */
   focusRequest: number;
-  /** A deliberate thread-panel open asks the (next) thread panel to take focus; `at` bounds how long. */
-  scopedFocus: { at: number } | null;
+  /**
+   * A deliberate thread-panel open asks the (next) thread panel to take focus;
+   * `at` bounds how long. With a `target` it asks for that issue's detail,
+   * which is what clicking a chip means.
+   */
+  scopedOpen: ScopedOpenRequest | null;
   /** Bumped when a cached issue detail changes (after a mutation). */
   detailVersion: number;
   /** An issue the nav page should show (chip, palette); `seq` makes repeats count. */
@@ -76,7 +81,7 @@ let state: ViewerState = {
   nested: true,
   daemon: { available: true, message: null },
   focusRequest: 0,
-  scopedFocus: null,
+  scopedOpen: null,
   detailVersion: 0,
   navTarget: null,
   visiting: null,
@@ -337,9 +342,13 @@ export function requestPanelFocus() {
   patch({ focusRequest: state.focusRequest + 1 });
 }
 
-/** Call right before opening the thread panel deliberately (chip, palette, header). */
-export function requestScopedFocus() {
-  patch({ scopedFocus: { at: Date.now() } });
+/**
+ * Call right before opening the thread panel deliberately (chip, palette,
+ * header). With a target the panel lands on that issue's detail; without one
+ * ("Open Kata issues") it lands on the list.
+ */
+export function requestScopedOpen(target: IssueTarget | null) {
+  patch({ scopedOpen: { at: Date.now(), target } });
 }
 
 export function selectIssue(projectUid: string, issueUid: string) {

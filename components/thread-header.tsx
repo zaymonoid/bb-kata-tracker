@@ -20,8 +20,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { PriorityChip, StatusGlyph } from "@/components/issue-bits";
 
 export { ISSUES_ACTION_ID } from "@/lib/issue-open";
-import { ISSUES_ACTION_ID } from "@/lib/issue-open";
-import { requestScopedFocus } from "@/lib/viewer-store";
+import { ISSUES_ACTION_ID, openIssue } from "@/lib/issue-open";
+import { requestScopedOpen } from "@/lib/viewer-store";
 const MAX_MATCHES = 8;
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -170,11 +170,27 @@ export function KataThreadHeader({ threadId, isCompactViewport }: PluginThreadHe
   if (!binding || !project) return null;
   const link = binding.link;
 
+  // The whole project's issues: the list, with the linked issue selected.
   const openPanel = () => {
     openingPanel.current = true;
-    requestScopedFocus();
+    requestScopedOpen(null);
     setOpen(false);
     if (!navigate.openThreadPanel({ actionId: ISSUES_ACTION_ID, title: `Kata · ${project.name}` })) {
+      openingPanel.current = false;
+      toast.error("This view has no thread side panel");
+    }
+  };
+
+  // The linked issue itself: its detail, like an issue chip.
+  const openLinkedIssue = () => {
+    if (!link) return;
+    openingPanel.current = true;
+    setOpen(false);
+    const where = openIssue(
+      { issueUid: link.issueUid, projectUid: link.projectUid, qualifiedId: link.qualifiedId },
+      { openPanel: (options) => navigate.openThreadPanel(options), navigate },
+    );
+    if (where === "none") {
       openingPanel.current = false;
       toast.error("This view has no thread side panel");
     }
@@ -244,7 +260,12 @@ export function KataThreadHeader({ threadId, isCompactViewport }: PluginThreadHe
               <span className="truncate">{project.name}</span>
             </div>
             {link ? (
-              <div className="mt-1.5 flex items-start gap-1.5">
+              <button
+                type="button"
+                onClick={openLinkedIssue}
+                title="open in the Kata panel"
+                className="mt-1.5 flex w-full items-start gap-1.5 rounded-md p-1 text-left hover:bg-muted"
+              >
                 <StatusGlyph status={link.status ?? "open"} className="mt-1" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
@@ -256,7 +277,7 @@ export function KataThreadHeader({ threadId, isCompactViewport }: PluginThreadHe
                   </div>
                   <p className="mt-0.5 line-clamp-3 text-sm">{link.title ?? "(issue could not be read)"}</p>
                 </div>
-              </div>
+              </button>
             ) : (
               <p className="mt-1 text-xs text-muted-foreground">No issue linked to this thread.</p>
             )}

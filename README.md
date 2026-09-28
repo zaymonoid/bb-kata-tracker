@@ -115,8 +115,10 @@ In a bound thread:
 - The agent gets short instructions (project, ref format, the linked issue),
   the `kata_*` tools and the `kata` skill.
 - `::kata-issue{ref="project#abc4"}` on its own line in a message renders as a
-  clickable chip. Clicking it opens the issue in the side panel. A closed issue
-  opens in the *all* view. Right-click the chip for *Copy ref*. The message
+  clickable chip. Clicking it opens that issue's **detail** in the side panel
+  (`esc` goes back to the list, clicking again returns to the detail); the
+  header's linked issue opens the same way, while *Open Kata issues* opens the
+  list. A closed issue opens in the *all* view. Right-click the chip for *Copy ref*. The message
   action "Kata: open issue from selection" finds refs in the text you select.
 - Palette: "Kata: open issue…" (by ref) and "Kata: link issue to this thread".
 
