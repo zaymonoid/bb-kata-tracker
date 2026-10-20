@@ -33,7 +33,7 @@ import {
   type KeymapState,
   type Pane,
 } from "@/lib/keymap";
-import { buildRows, parentUids, visibleRowFor } from "@/lib/tree";
+import { buildRows, orderIssues, parentUids, visibleRowFor } from "@/lib/tree";
 import type { KataRpcContract } from "@/lib/rpc-contract";
 import { KATA_CHANNEL, type KataSignal } from "@/lib/signals";
 import {
@@ -72,6 +72,7 @@ import {
   setStatusView,
   statusOf,
   toggleNested,
+  toggleSort,
   viewerStore,
   visitProject,
 } from "@/lib/viewer-store";
@@ -296,8 +297,13 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
   const filter = activeUid ? (view.filters[activeUid] ?? "") : "";
   const expanded = activeUid ? expandedFor(activeUid) : undefined;
   const rows = useMemo(
-    () => buildRows(issues, { nested: view.nested, expanded: expanded ?? new Set(), filter }),
-    [issues, view.nested, expanded, filter],
+    () =>
+      buildRows(orderIssues(issues, view.sort), {
+        nested: view.nested,
+        expanded: expanded ?? new Set(),
+        filter,
+      }),
+    [issues, view.nested, view.sort, expanded, filter],
   );
 
   // Selection: the stored uid, or its nearest visible ancestor when it is
@@ -796,6 +802,9 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
       case "toggleView":
         toggleNested();
         return setFlash(viewerStore.get().nested ? "Nested view" : "Flat view");
+      case "toggleSort":
+        toggleSort();
+        return setFlash(viewerStore.get().sort === "priority" ? "Sorted by priority" : "Default order");
       case "expand":
         if (!selectedRow || activeUid === null) return;
         if (selectedRow.childCount > 0 && !selectedRow.expanded) return toggleRow(selectedRow.issue.uid);
@@ -1380,7 +1389,7 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
             {filter !== "" ? `${rows.filter((row) => row.match).length} of ` : ""}
             {countText}
             {list.truncated ? " (truncated)" : ""}
-            {narrow ? "" : ` · ${view.nested ? "nested" : "flat"}`}
+            {narrow ? "" : ` · ${view.nested ? "nested" : "flat"}${view.sort === "priority" ? " · priority" : ""}`}
           </span>
         ) : null}
         {statusView !== "open" && scopedUid !== null ? (

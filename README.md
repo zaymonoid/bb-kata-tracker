@@ -114,6 +114,7 @@ The list takes keyboard focus.
 | View | `s` | cycle open/all/closed |
 | | `/` | filter by title, label or short id (`enter` to keep, `esc` to clear) |
 | | `v` | nested/flat |
+| | `o` | sort: default/priority (P0 first, unset last, then most recently updated) |
 | | `space` / `→` / `←` | expand/collapse, expand, collapse / parent |
 | | `E` | expand/collapse all |
 | | `y` | copy `project#abc4` |

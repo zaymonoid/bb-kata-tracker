@@ -174,6 +174,12 @@ test("edit keys map to their commands", () => {
   );
 });
 
+test("o toggles the sort, in either pane", () => {
+  assert.deepEqual(handleKey(initialKeymapState, { key: "o" }, "list").command, { type: "toggleSort" });
+  assert.deepEqual(handleKey(initialKeymapState, { key: "o" }, "detail").command, { type: "toggleSort" });
+  assert.equal(handleKey(initialKeymapState, { key: "o" }, "list", { typing: true }).handled, false);
+});
+
 test("Esc cancels a pending priority chord without running anything", () => {
   const { commands, state, handled } = press(["!", "Escape", "j"]);
   assert.deepEqual(commands, [{ type: "move", delta: 1 }]);

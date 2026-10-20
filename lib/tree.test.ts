@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { KataIssue } from "./kata-types.ts";
-import { buildRows, matchesFilter, parentUids, visibleRowFor } from "./tree.ts";
+import { buildRows, matchesFilter, orderIssues, parentUids, visibleRowFor } from "./tree.ts";
 
 const issue = (short: string, parent?: string, extra: Partial<KataIssue> = {}): KataIssue => ({
   id: 1,
@@ -107,4 +107,35 @@ test("visibleRowFor falls back to the nearest shown ancestor", () => {
   assert.equal(visibleRowFor("Ud", rows, issues), "Ua");
   assert.equal(visibleRowFor("Ue", rows, issues), "Ue");
   assert.equal(visibleRowFor("Unope", rows, issues), null);
+});
+
+const ranked = [
+  issue("u", undefined, { updated_at: "2026-01-05" }),
+  issue("p2old", undefined, { priority: 2, updated_at: "2026-01-01" }),
+  issue("p0", undefined, { priority: 0, updated_at: "2026-01-01" }),
+  issue("p2new", undefined, { priority: 2, updated_at: "2026-01-03" }),
+];
+
+test("orderIssues by priority: P0, then P2 most recently updated first, unset last", () => {
+  assert.deepEqual(
+    orderIssues(ranked, "priority").map((i) => i.short_id),
+    ["p0", "p2new", "p2old", "u"],
+  );
+  assert.deepEqual(ranked.map((i) => i.short_id), ["u", "p2old", "p0", "p2new"], "input untouched");
+});
+
+test("orderIssues in default mode keeps the daemon order", () => {
+  assert.deepEqual(orderIssues(ranked, "default").map((i) => i.short_id), ["u", "p2old", "p0", "p2new"]);
+});
+
+test("sorting before buildRows orders children within their parent", () => {
+  const family = [
+    issue("r", undefined, { priority: 3 }),
+    issue("k3", "r", { priority: 3 }),
+    issue("k1", "r", { priority: 1 }),
+    issue("q", undefined, { priority: 1 }),
+    issue("kn", "r"),
+  ];
+  const rows = buildRows(orderIssues(family, "priority"), { nested: true, expanded: new Set(["Ur"]) });
+  assert.deepEqual(view(rows), ["q", "r", "├─ k1", "├─ k3", "└─ kn"]);
 });

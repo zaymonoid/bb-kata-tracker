@@ -36,6 +36,7 @@ export type KeyCommand =
   | { type: "linkThread" }
   | { type: "search" }
   | { type: "toggleView" }
+  | { type: "toggleSort" }
   | { type: "expand" }
   | { type: "toggle" }
   | { type: "collapse" }
@@ -207,6 +208,8 @@ export function handleKey(
       return idle({ type: "search" });
     case "v":
       return idle({ type: "toggleView" });
+    case "o":
+      return idle({ type: "toggleSort" });
     case " ":
       return pane === "list" ? idle({ type: "toggle" }) : idle(null, false);
     case "ArrowRight":
@@ -391,6 +394,7 @@ export const BINDING_GROUPS: readonly BindingGroup[] = [
       { keys: ["s"], label: "cycle open/all/closed" },
       { keys: ["/"], label: "filter" },
       { keys: ["v"], label: "nested/flat" },
+      { keys: ["o"], label: "sort: default/priority" },
       { keys: ["space"], label: "expand/collapse" },
       { keys: ["→"], label: "expand" },
       { keys: ["←"], label: "collapse / parent" },

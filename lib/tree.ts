@@ -1,8 +1,20 @@
 // Nested / flat rows for the issue list, like `kata tui`'s list: children sit
 // under their parent with box-drawing guides. A child whose parent is not in
 // the list (closed, or in another project) is a root. Pure, so it is unit
-// tested; the panel memoizes it per list/expansion/filter change.
+// tested; the panel memoizes it per list/expansion/filter/sort change.
+import { sortIssues } from "./cli-core.ts";
 import type { KataIssue } from "./kata-types";
+
+/** List order: as the daemon returns it, or by priority (`sortIssues`). */
+export type SortMode = "default" | "priority";
+
+/**
+ * `issues` in `sort` order. `buildRows` keeps input order for roots and for
+ * each parent's children, so this orders every sibling group in nested view.
+ */
+export function orderIssues(issues: readonly KataIssue[], sort: SortMode): readonly KataIssue[] {
+  return sort === "priority" ? sortIssues([...issues]) : issues;
+}
 
 export interface TreeRow {
   issue: KataIssue;

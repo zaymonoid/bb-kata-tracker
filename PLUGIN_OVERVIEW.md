@@ -86,6 +86,7 @@ edits. Nothing waits on the network before the next key.
 | `y` | Copy `project#abc4` (toast). |
 | `/` | Live filter on title/labels/short id within the tab; Enter keeps it and returns to the list, Esc clears. In nested view, ancestors of matches stay visible. |
 | `v` | Nested / flat. |
+| `o` | Sort: daemon order / by priority (P0 first, unset last, ties most recently updated first; `orderIssues` in `lib/tree.ts`, reusing `sortIssues` from `lib/cli-core.ts`). In nested view each sibling group is sorted. The status bar shows `· priority`. |
 | `Space`, `→`, `←`, `E` | Toggle, expand (or step into the first child), collapse (or go to the parent), expand/collapse all. Nested rows start collapsed; box-drawing guides as in `kata tui` (`lib/tree.ts`). |
 
 Mutation RPCs (all resolve the actor via `resolveActor` and return
