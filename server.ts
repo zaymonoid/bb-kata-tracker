@@ -3,8 +3,9 @@
 // Bridges the local kata daemon into bb: a typed client (lib/kata-client.ts),
 // a warm per-project cache of open issues tailing kata's event log
 // (lib/issue-store.ts), and the RPC contract the Kata panel reads
-// (lib/rpc-contract.ts). Which kata projects appear as tabs is the
-// `includedProjects` setting, editable here and from the panel's picker.
+// (lib/rpc-contract.ts). Which kata projects appear as tabs is the active
+// group's projects (lib/groups.ts), kept in the `projectGroups` setting and
+// mirrored into `includedProjects`, editable here and from the panel's picker.
 //
 // Kata-aware threads (T3): lib/workspace.ts binds each bb project to a kata
 // project through `.kata.toml`, and this plugin's thread metadata can link a
@@ -18,6 +19,16 @@ import { tryParseRef } from "./lib/refs.ts";
 import { toIssueDetail } from "./lib/issue-detail.ts";
 import { CLOSE_RULES } from "./lib/close-rules.ts";
 import { createIssueStore } from "./lib/issue-store.ts";
+import {
+  activeProjectUids,
+  groupsFromIncluded,
+  isUnsetGroups,
+  normalizeGroups,
+  serializeGroups,
+  withActiveProjects,
+  type ProjectGroups,
+} from "./lib/groups.ts";
+import { isValidGroupsSetting, parseGroups } from "./lib/groups-schema.ts";
 import { KATA_TOOL_NAMES, registerKataTools } from "./lib/agent-tools.ts";
 import { buildKataCli } from "./lib/cli.ts";
 import { createKataService } from "./lib/kata-service.ts";
@@ -46,6 +57,8 @@ const uidList = z.array(z.string().min(1).max(64)).max(64);
 /** kv key for one surface's list/detail split. */
 const splitKey = (surface: string) => `layout.split.${surface}`;
 
+const sameUids = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((uid, i) => uid === b[i]);
+
 /** Parse the `includedProjects` setting; invalid JSON reads as empty. */
 function parseIncluded(value: string): string[] {
   try {
@@ -73,6 +86,17 @@ export default async function plugin(bb: BbPluginApi) {
       }, "Must be a JSON array of kata project uids"),
       default: "[]",
     },
+    projectGroups: {
+      type: "string",
+      label: "Project groups",
+      description:
+        'JSON {"groups":[{"id","name","projectUids"}],"activeGroupId"}. The active group\'s projects are the tabs, and are mirrored into includedProjects. Empty is filled from includedProjects on load.',
+      experimental_multiline: true,
+      experimental_schema: z
+        .string()
+        .refine(isValidGroupsSetting, "Must be JSON {groups: [{id, name, projectUids}], activeGroupId}"),
+      default: "",
+    },
     actor: {
       type: "string",
       label: "Actor",
@@ -93,14 +117,96 @@ export default async function plugin(bb: BbPluginApi) {
   });
   bb.onDispose(() => store.dispose());
 
-  let included = parseIncluded((await settings.get()).includedProjects);
+  // ---- project groups --------------------------------------------------------
+  //
+  // `projectGroups` is the source of truth; `includedProjects` mirrors the
+  // active group's projects for older readers. `groupsRaw` / `includedRaw`
+  // are the setting values last seen or written here: an onChange whose value
+  // matches them is our own write echoing back and is ignored.
+  const initial = await settings.get();
+  let groupsRaw = initial.projectGroups;
+  let includedRaw = initial.includedProjects;
+  // Never written yet: one "Projects" group from includedProjects, saved by
+  // the "project-groups" service once the plugin has loaded.
+  let groups = isUnsetGroups(groupsRaw) ? groupsFromIncluded(parseIncluded(includedRaw)) : parseGroups(groupsRaw);
+  let included = activeProjectUids(groups);
   store.setIncluded(included);
-  settings.onChange((next) => {
-    const uids = parseIncluded(next.includedProjects);
-    if (JSON.stringify(uids) === JSON.stringify(included)) return;
+
+  /** Write `includedProjects` when it no longer matches the active group. */
+  function mirrorIncluded() {
+    if (sameUids(parseIncluded(includedRaw), included)) return;
+    includedRaw = JSON.stringify(included);
+    settings.experimental_set({ includedProjects: includedRaw }).catch((error: unknown) => {
+      bb.log.warn(`mirroring includedProjects failed: ${String(error)}`);
+    });
+  }
+
+  /** Take `next` as the groups: update the store, tell open panels, mirror. */
+  function adoptGroups(next: ProjectGroups) {
+    const groupsChanged = serializeGroups(next) !== serializeGroups(groups);
+    const uids = activeProjectUids(next);
+    const includedChanged = !sameUids(uids, included);
+    groups = next;
     included = uids;
-    store.setIncluded(uids);
-    publish({ type: "included.changed", projectUids: uids });
+    if (includedChanged) store.setIncluded(uids);
+    if (groupsChanged) publish({ type: "groups.changed", ...groups });
+    if (includedChanged) publish({ type: "included.changed", projectUids: uids });
+    mirrorIncluded();
+  }
+
+  /** Normalize, persist and adopt `next`; answers with the effective groups. */
+  async function setGroups(next: ProjectGroups): Promise<ProjectGroups> {
+    const normalized = normalizeGroups(next);
+    const raw = serializeGroups(normalized);
+    if (raw === groupsRaw) return groups;
+    const previousRaw = groupsRaw;
+    groupsRaw = raw;
+    try {
+      const effective = await settings.experimental_set({ projectGroups: raw });
+      groupsRaw = effective.projectGroups;
+    } catch (error) {
+      groupsRaw = previousRaw;
+      throw error;
+    }
+    adoptGroups(parseGroups(groupsRaw));
+    return groups;
+  }
+
+  bb.background.service("project-groups", {
+    // Settings writes wait until load is done: save the migration, and bring
+    // includedProjects in line if projectGroups was edited while unloaded.
+    start: async (signal) => {
+      try {
+        if (isUnsetGroups(groupsRaw)) await setGroups(groups);
+        else mirrorIncluded();
+      } catch (error) {
+        bb.log.warn(`saving project groups failed: ${String(error)}`);
+      }
+      await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+    },
+  });
+
+  settings.onChange((next) => {
+    if (next.projectGroups !== groupsRaw) {
+      // Edited elsewhere (settings page, another write path).
+      groupsRaw = next.projectGroups;
+      includedRaw = next.includedProjects;
+      if (!isUnsetGroups(groupsRaw)) return adoptGroups(parseGroups(groupsRaw));
+      // Cleared: start again from the tabs shown now.
+      setGroups(groupsFromIncluded(included)).catch((error: unknown) => {
+        bb.log.warn(`re-creating project groups failed: ${String(error)}`);
+      });
+      return;
+    }
+    if (next.includedProjects !== includedRaw) {
+      includedRaw = next.includedProjects;
+      const uids = parseIncluded(includedRaw);
+      if (sameUids(uids, included)) return;
+      // includedProjects edited directly: it replaces the active group's projects.
+      setGroups(withActiveProjects(groups, uids)).catch((error: unknown) => {
+        bb.log.warn(`applying includedProjects to the active group failed: ${String(error)}`);
+      });
+    }
   });
 
   async function resolveActor(): Promise<string> {
@@ -163,11 +269,9 @@ export default async function plugin(bb: BbPluginApi) {
 
   // ---- `bb kata` CLI and agent tools (T4) ------------------------------------
 
+  /** Replace the active group's projects (the tabs). */
   async function setIncluded(projectUids: string[]): Promise<string[]> {
-    const uids = [...new Set(projectUids)];
-    // onChange applies it to the store and tells open panels.
-    const effective = await settings.experimental_set({ includedProjects: JSON.stringify(uids) });
-    return parseIncluded(effective.includedProjects);
+    return activeProjectUids(await setGroups(withActiveProjects(groups, projectUids)));
   }
 
   const service = createKataService({
@@ -177,6 +281,7 @@ export default async function plugin(bb: BbPluginApi) {
     actor: resolveActor,
     bbProjects: async () => (await bb.sdk.projects.list()).map((p) => ({ id: p.id, name: p.name })),
     included: { get: () => included, set: setIncluded },
+    groups: { get: () => groups, set: setGroups },
     threadLink: {
       get: (threadId) => bb.sdk.threads.getPluginMetadata({ threadId }),
       set: async (threadId, link, title) => {
@@ -338,6 +443,8 @@ export default async function plugin(bb: BbPluginApi) {
     "projects.list": async () => ({ projects: await store.projects(true) }),
     "included.get": () => ({ projectUids: included }),
     "included.set": async ({ projectUids }) => ({ projectUids: await setIncluded(projectUids) }),
+    "groups.get": () => groups,
+    "groups.set": (next) => setGroups(next),
     "issues.list": async ({ projectUid, status }) => {
       if (status === "open") return store.listOpen(projectUid);
       const project = await store.projectByUid(projectUid);
@@ -463,6 +570,6 @@ export default async function plugin(bb: BbPluginApi) {
   });
 
   bb.log.info(
-    `loaded; ${included.length} included project(s), actor ${await resolveActor()}`,
+    `loaded; ${groups.groups.length} project group(s), ${included.length} project(s) in the active one, actor ${await resolveActor()}`,
   );
 }

@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildKataCli } from "./cli.ts";
+import type { ProjectGroups } from "./groups.ts";
 import type { KataClient } from "./kata-client.ts";
 import type { KataIssue, KataShowIssueResponse } from "./kata-types.ts";
 import { createKataService } from "./kata-service.ts";
@@ -51,6 +52,14 @@ function setup(bound: Binding["kataProject"] = null) {
     editIssue: record("editIssue", () => ({ issue: issue("aaa1"), changed: true })),
     issueByUid: record("issueByUid", () => ({ issue: { ...issue("aaa1"), project_id: 5 } })),
   } as unknown as KataClient;
+  let groups: ProjectGroups = {
+    groups: [
+      { id: "g1", name: "Work", projectUids: [scratch.uid] },
+      { id: "g2", name: "Play", projectUids: [grippify.uid, scratch.uid] },
+      { id: "g3", name: "play", projectUids: [] },
+    ],
+    activeGroupId: "g1",
+  };
   const binding = (kataProject: Binding["kataProject"]): Binding => ({ kataProject, name: null, dir: null });
   const service = createKataService({
     client,
@@ -61,7 +70,14 @@ function setup(bound: Binding["kataProject"] = null) {
     },
     actor: async () => "tester",
     bbProjects: async () => [],
-    included: { get: () => [], set: async (u) => u },
+    included: { get: () => groups.groups.find((g) => g.id === groups.activeGroupId)!.projectUids, set: async (u) => u },
+    groups: {
+      get: () => groups,
+      set: async (next) => {
+        calls.push({ method: "groups.set", args: [next] });
+        return (groups = next);
+      },
+    },
     threadLink: { get: async () => ({}), set: async () => {}, remove: async () => {} },
   });
   const cli = buildKataCli({ service, readFile: async (path) => `file:${path}` });
@@ -202,6 +218,48 @@ test("refs: qualified and ULID refs pick their own project", async () => {
   assert.match(conflict.stderr ?? "", /belongs to grippify/);
 });
 
+test("projects: [included] names the active group", async () => {
+  const { run } = setup();
+  const r = await run(["projects"]);
+  assert.equal(r.exitCode, 0, r.stderr);
+  assert.equal(
+    r.stdout,
+    `grippify  id 5  uid ${grippify.uid}\n` +
+      `bb-plugin-kata-scratch  id 12  uid ${scratch.uid}  [included]\n` +
+      "[included]: in the active group, Work\n",
+  );
+  const json = JSON.parse((await run(["projects", "--json"])).stdout ?? "");
+  assert.deepEqual(json.group, { id: "g1", name: "Work" });
+});
+
+test("groups: * marks the active group, with project counts", async () => {
+  const { run } = setup();
+  const r = await run(["groups"]);
+  assert.equal(r.exitCode, 0, r.stderr);
+  assert.equal(r.stdout, "* Work  id g1  1 project\n  Play  id g2  2 projects\n  play  id g3  0 projects\n");
+  const json = JSON.parse((await run(["groups", "--json"])).stdout ?? "");
+  assert.deepEqual(json.groups[1], { id: "g2", name: "Play", active: false, projects: ["grippify", "bb-plugin-kata-scratch"] });
+});
+
+test("group use: by exact name, id or any case; ambiguous and unknown names fail", async () => {
+  const { calls, run } = setup();
+  const r = await run(["group", "use", "Play"]);
+  assert.equal(r.exitCode, 0, r.stderr);
+  assert.equal(r.stdout, "active group: Play; tabs: grippify, bb-plugin-kata-scratch\n");
+  assert.equal((calls.at(-1)?.args[0] as ProjectGroups).activeGroupId, "g2");
+  // Already active: nothing is saved.
+  const saves = calls.length;
+  assert.equal((await run(["group", "use", "g2"])).stdout, "already active: Play; tabs: grippify, bb-plugin-kata-scratch\n");
+  assert.equal(calls.length, saves);
+  assert.equal((await run(["group", "use", "work"])).stdout, "active group: Work; tabs: bb-plugin-kata-scratch\n");
+  const ambiguous = JSON.parse((await run(["group", "use", "PLAY", "--json"])).stdout ?? "");
+  assert.equal(ambiguous.error.code, "group_ambiguous");
+  assert.match(ambiguous.error.hint, /g2, g3/);
+  const unknown = JSON.parse((await run(["group", "use", "nope", "--json"])).stdout ?? "");
+  assert.equal(unknown.error.code, "group_not_found");
+  assert.match(unknown.error.hint, /Work, Play, play/);
+});
+
 test("help renders at every level", async () => {
   const { run } = setup();
   const top = await run(["--help"]);
@@ -210,4 +268,8 @@ test("help renders at every level", async () => {
   const list = await run(["list", "--help"]);
   assert.match(list.stdout ?? "", /--unowned/);
   assert.match(list.stdout ?? "", /max 500/);
+  assert.match(top.stdout ?? "", /bb kata group use/);
+  const group = await run(["group", "--help"]);
+  assert.equal(group.exitCode, 0, group.stderr);
+  assert.match(group.stdout ?? "", /use/);
 });

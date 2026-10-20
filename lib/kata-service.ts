@@ -15,6 +15,7 @@ import {
   type ListOptions,
   type ProjectInputs,
 } from "./cli-core.ts";
+import { activateGroup, activeGroup, findGroups, type ProjectGroups } from "./groups.ts";
 import { toIssueDetail } from "./issue-detail.ts";
 import type { KataClient } from "./kata-client.ts";
 import type { KataEditIssueBody, KataIssue, KataIssueDetail, KataProject } from "./kata-types.ts";
@@ -38,7 +39,9 @@ export interface KataServiceDeps {
   };
   actor(): Promise<string>;
   bbProjects(): Promise<{ id: string; name: string }[]>;
+  /** The active group's projects (the viewer's tabs). */
   included: { get(): string[]; set(uids: string[]): Promise<string[]> };
+  groups: { get(): ProjectGroups; set(next: ProjectGroups): Promise<ProjectGroups> };
   threadLink: {
     get(threadId: string): Promise<unknown>;
     set(threadId: string, link: ThreadLink, title: string): Promise<void>;
@@ -46,6 +49,17 @@ export interface KataServiceDeps {
   };
   /** A mutation landed (refresh warm caches). */
   afterMutation?(project: KataProject): void;
+}
+
+/** Groups for `bb kata groups`, with their projects' names in tab order. */
+function describeGroups(value: ProjectGroups, projects: KataProject[]) {
+  const name = (uid: string) => projects.find((p) => p.uid === uid)?.name ?? uid;
+  return value.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    active: group.id === value.activeGroupId,
+    projects: group.projectUids.map(name),
+  }));
 }
 
 /** Rows fetched before sorting and cutting to the requested limit. */
@@ -99,7 +113,8 @@ export function createKataService(deps: KataServiceDeps) {
       const [projects, bbProjects] = await Promise.all([deps.projects(), deps.bbProjects().catch(() => [])]);
       const included = deps.included.get();
       const bindings = await Promise.allSettled(bbProjects.map((bp) => deps.bindings.forProject(bp.id)));
-      return projects.map((p) => ({
+      const group = activeGroup(deps.groups.get());
+      const rows = projects.map((p) => ({
         id: p.id,
         uid: p.uid,
         name: p.name,
@@ -111,6 +126,7 @@ export function createKataService(deps: KataServiceDeps) {
           })
           .map((bp) => ({ id: bp.id, name: bp.name })),
       }));
+      return { group: group && { id: group.id, name: group.name }, projects: rows };
     },
 
     async list(scope: Scope, options: ListOptions) {
@@ -263,6 +279,28 @@ export function createKataService(deps: KataServiceDeps) {
       const next = include ? [...current.filter((u) => u !== p.uid), p.uid] : current.filter((u) => u !== p.uid);
       const saved = include && current.includes(p.uid) ? current : await deps.included.set(next);
       return { project: p, included: saved.map((uid) => projects.find((x) => x.uid === uid)?.name ?? uid) };
+    },
+
+    // ---- project groups ----
+    async groups() {
+      return describeGroups(deps.groups.get(), await deps.projects());
+    },
+    /** Make the group named `key` (id or name) active; the viewer's tabs follow. */
+    async useGroup(key: string) {
+      const value = deps.groups.get();
+      const matches = findGroups(value, key);
+      if (matches.length === 0) {
+        const names = value.groups.map((group) => group.name).join(", ");
+        throw new KataUsageError(`no project group "${key}"`, "group_not_found", `Groups: ${names}.`);
+      }
+      if (matches.length > 1) {
+        const ids = matches.map((group) => group.id).join(", ");
+        throw new KataUsageError(`${matches.length} groups are named "${key}"`, "group_ambiguous", `Pass an id instead: ${ids}.`);
+      }
+      const next = activateGroup(value, matches[0]!.id);
+      const saved = next === value ? value : await deps.groups.set(next);
+      const group = describeGroups(saved, await deps.projects()).find((g) => g.active)!;
+      return { group, changed: next !== value };
     },
   };
 }

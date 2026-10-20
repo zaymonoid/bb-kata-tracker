@@ -38,6 +38,7 @@ import type { KataRpcContract } from "@/lib/rpc-contract";
 import { KATA_CHANNEL, type KataSignal } from "@/lib/signals";
 import {
   addComment,
+  applyGroups,
   applyIncluded,
   cachedDetail,
   clearLingering,
@@ -64,6 +65,7 @@ import {
   setExpanded,
   setExpandedOne,
   setFilter,
+  setGroups,
   setIncluded,
   setLabels,
   setPriority,
@@ -92,6 +94,7 @@ import { DraftRow, FilterBar, LabelBar, TitleEditor, type Draft } from "@/compon
 import { ProjectPicker } from "@/components/project-picker";
 import { ProjectTabs } from "@/components/project-tabs";
 import { moveToSlot, shiftBy } from "@/lib/reorder";
+import { activateGroup, activeGroup, activeProjectUids, stepGroup, tabOnSwitch, type ProjectGroups } from "@/lib/groups";
 
 const DETAIL_DEBOUNCE_MS = 120;
 const FLASH_MS = 1800;
@@ -255,6 +258,9 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
         return;
       case "included.changed":
         applyIncluded(rpc, payload.projectUids);
+        return;
+      case "groups.changed":
+        applyGroups(rpc, { groups: payload.groups, activeGroupId: payload.activeGroupId });
         return;
       case "daemon.status":
         setDaemon(payload.available, payload.message);
@@ -618,7 +624,7 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
     patch({ activeUid: uid, ...(visiting !== null && uid !== visiting ? { visiting: null } : {}) });
   };
 
-  /** Persist a new tab order (drag, `alt-[` / `alt-]`, the picker). */
+  /** Persist a new tab order (drag, `alt-[` / `alt-]`). */
   const saveOrder = (next: readonly string[]) => {
     if (next === included) return;
     setIncluded(rpc, [...next]).catch((error: unknown) => flashError("Could not save projects", error));
@@ -635,6 +641,38 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
     const index = activeUid === null ? -1 : tabs.indexOf(activeUid);
     const next = tabs[(index + delta + tabs.length) % tabs.length];
     if (next !== undefined) activate(next);
+  };
+
+  /**
+   * Persist new groups (the strip's chips, `⌘[` / `⌘]`, the picker). The tabs
+   * become the active group's projects; when the tab changes, its per-tab UI
+   * is reset, and a change of group drops a visited tab.
+   */
+  const saveGroups = (next: ProjectGroups, failure = "Could not save groups") => {
+    const groups = view.groups;
+    if (scopedUid !== null || groups === null || next === groups) return;
+    const projectUids = activeProjectUids(next);
+    const switching = next.activeGroupId !== groups.activeGroupId;
+    const keepsTab = activeUid !== null && (projectUids.includes(activeUid) || activeUid === visiting);
+    // As the store decides: a new group lands on the tab last shown in it;
+    // otherwise the active tab stays when it can, else the first one.
+    const nextUid = switching
+      ? tabOnSwitch(projectUids, activeUid, view.activeTabByGroup[next.activeGroupId])
+      : keepsTab
+        ? activeUid
+        : (projectUids[0] ?? null);
+    if (nextUid !== activeUid) {
+      if (activeUid !== null) clearLingering(activeUid);
+      resetTabUi();
+      if (nextUid !== null && !view.lists[nextUid]?.issues) parkFocus();
+    }
+    // Leaving the group drops a visited tab, as choosing another tab does.
+    if (switching && visiting !== null) patch({ visiting: null });
+    setGroups(rpc, next).catch((error: unknown) => flashError(failure, error));
+  };
+
+  const switchGroup = (delta: 1 | -1) => {
+    if (view.groups !== null) saveGroups(stepGroup(view.groups, delta), "Could not switch group");
   };
 
   const toggleRow = useCallback(
@@ -744,6 +782,8 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
         return switchTab(command.delta);
       case "moveTab":
         return moveTab(command.delta);
+      case "group":
+        return switchGroup(command.delta);
       case "help":
         return setHelpOpen((open) => !open);
       case "clearFilter":
@@ -1061,6 +1101,8 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
   const hint: Flash | null = pendingText ? { text: pendingText, tone: "info" } : flash;
   const showFilter = filterOpen || filter !== "";
 
+  const shownGroup = view.groups === null ? null : activeGroup(view.groups);
+
   let body;
   if (!ready) {
     body = view.projectsError ? (
@@ -1071,11 +1113,15 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
   } else if (tabs.length === 0) {
     body = (
       <EmptyState>
-        <p>No kata projects included yet.</p>
+        <p>
+          {shownGroup !== null && (view.groups?.groups.length ?? 0) > 1
+            ? `${shownGroup.name} has no projects yet.`
+            : "No kata projects included yet."}
+        </p>
         <Button className="mt-3" size="sm" onClick={() => setPickerOpen(true)}>
           Choose projects
         </Button>
-        <p className="mt-2 text-xs">Or use the + tab above.</p>
+        <p className="mt-2 text-xs">Or use the gear in the tab strip.</p>
       </EmptyState>
     );
   } else {
@@ -1299,6 +1345,12 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
             saveOrder(moveToSlot(included, uid, slot));
             focusList();
           }}
+          groups={view.groups?.groups}
+          activeGroupId={view.groups?.activeGroupId}
+          onActivateGroup={(groupId) => {
+            if (view.groups !== null) saveGroups(activateGroup(view.groups, groupId), "Could not switch group");
+            focusList();
+          }}
         />
       ) : null}
       {view.daemon.available ? null : (
@@ -1400,8 +1452,8 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
           }}
           projects={view.projects}
           projectsError={view.projectsError}
-          included={included}
-          onChange={saveOrder}
+          groups={view.groups}
+          onChange={(next) => saveGroups(next)}
         />
       ) : null}
     </div>

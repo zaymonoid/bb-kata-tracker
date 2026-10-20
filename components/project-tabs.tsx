@@ -1,13 +1,21 @@
-// One tab per included kata project, plus `+` for the project picker.
+// One tab per project of the active group, plus a gear that opens the
+// project picker (groups and their projects).
 //
 // Tabs are dragged to reorder (native HTML5 drag and drop): a bar marks the
 // gap the tab would land in, and the drop reports the gap to `onMove`, which
-// saves the new order. The `+` tab and a *visiting* tab (not in
+// saves the new order. The gear and a *visiting* tab (not in
 // `includedProjects`) are neither draggable nor drop targets. `alt-[` /
 // `alt-]` do the same from the keyboard (lib/keymap.ts).
+//
+// With more than one group, a segment pinned at the left lists every group
+// (like i3's workspace bar, components/group-chips.tsx), the active one
+// highlighted; clicking a chip activates that group. It sits outside the
+// tabs' scroll area, so it stays put while they scroll. With one group it is hidden and the strip is just tabs.
 import { useState, type DragEvent } from "react";
+import type { ProjectGroup } from "@/lib/groups";
 import type { KataProject } from "@/lib/kata-types";
 import type { StatusView } from "@/lib/viewer-store";
+import { GroupChips } from "@/components/group-chips";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +32,10 @@ export interface ProjectTabsProps {
   onOpenPicker: () => void;
   /** Drop `uid` into the gap at `slot` (`lib/reorder.ts` `moveToSlot`). */
   onMove?: (uid: string, slot: number) => void;
+  /** Every group, in order; the segment shows only when there are two or more. */
+  groups?: readonly ProjectGroup[];
+  activeGroupId?: string | null;
+  onActivateGroup?: (groupId: string) => void;
 }
 
 interface DragState {
@@ -44,6 +56,9 @@ export function ProjectTabs({
   onActivate,
   onOpenPicker,
   onMove,
+  groups = [],
+  activeGroupId = null,
+  onActivateGroup,
 }: ProjectTabsProps) {
   const [drag, setDrag] = useState<DragState | null>(null);
   const nameOf = (uid: string) =>
@@ -87,11 +102,15 @@ export function ProjectTabs({
     </span>
   );
 
-  return (
+  const showGroups = groups.length > 1;
+  const tabs = (
     <div
       role="tablist"
       aria-label="Kata projects"
-      className="flex h-9 shrink-0 items-stretch gap-0.5 overflow-x-auto border-b border-border px-2"
+      className={cn(
+        "flex items-stretch gap-0.5 overflow-x-auto",
+        showGroups ? "min-w-0 flex-1 pr-2" : "h-9 shrink-0 border-b border-border px-2",
+      )}
     >
       {included.flatMap((uid) => {
         const active = uid === activeUid;
@@ -146,14 +165,29 @@ export function ProjectTabs({
       <button
         type="button"
         tabIndex={-1}
-        aria-label="Choose kata projects"
-        title="Choose kata projects"
+        aria-label="Groups and projects"
+        title="Groups and projects"
         onMouseDown={(event) => event.preventDefault()}
         onClick={onOpenPicker}
         className="flex shrink-0 items-center px-2 text-muted-foreground hover:text-foreground"
       >
-        <Icon name="Plus" className="size-4" />
+        <Icon name="Settings" className="size-4" />
       </button>
+    </div>
+  );
+  if (!showGroups) return tabs;
+
+  return (
+    <div className="flex h-9 shrink-0 items-stretch border-b border-border">
+      <GroupChips
+        groups={groups}
+        activeGroupId={activeGroupId}
+        onActivate={onActivateGroup}
+        abbreviateInactive
+        className="pl-2"
+      />
+      <span aria-hidden className="mx-1.5 my-2 w-px shrink-0 bg-border" />
+      {tabs}
     </div>
   );
 }

@@ -7,6 +7,7 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { CLOSE_REASONS } from "./close-rules.ts";
+import { projectGroupsSchema } from "./groups-schema.ts";
 import {
   issueDetailSchema,
   issueSchema,
@@ -72,7 +73,7 @@ export const rpcContract = defineRpcContract({
     input: z.null(),
     output: z.object({ projects: z.array(projectSchema) }),
   },
-  /** Included project uids, in tab order. */
+  /** The active group's project uids, in tab order. */
   "included.get": {
     input: z.null(),
     output: z.object({ projectUids: z.array(z.string()) }),
@@ -80,6 +81,16 @@ export const rpcContract = defineRpcContract({
   "included.set": {
     input: z.object({ projectUids: z.array(projectUid).max(64) }).strict(),
     output: z.object({ projectUids: z.array(z.string()) }),
+  },
+  /** All project groups and which one is active, normalized. */
+  "groups.get": {
+    input: z.null(),
+    output: projectGroupsSchema,
+  },
+  /** Replace the groups; answers with the normalized value that was saved. */
+  "groups.set": {
+    input: projectGroupsSchema.strict(),
+    output: projectGroupsSchema,
   },
   /**
    * Open issues come from the server's warm cache; closed/all go to the

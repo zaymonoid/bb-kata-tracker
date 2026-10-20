@@ -5,6 +5,7 @@ import {
   BINDING_GROUPS,
   handleKey,
   inputKey,
+  pickerKey,
   initialKeymapState,
   pendingHint,
   type KeyCommand,
@@ -109,6 +110,34 @@ test("alt-[ / alt-] move the tab, by key or by code", () => {
   assert.equal(press(["g", { key: "]", altKey: true }]).state.pending, null);
 });
 
+test("cmd-[ / cmd-] switch group, by code", () => {
+  assert.deepEqual(
+    press([
+      { key: "[", code: "BracketLeft", metaKey: true },
+      { key: "]", code: "BracketRight", metaKey: true },
+    ]).commands,
+    [
+      { type: "group", delta: -1 },
+      { type: "group", delta: 1 },
+    ],
+  );
+  assert.deepEqual(press([{ key: "]", code: "BracketRight", metaKey: true }], "detail").commands, [
+    { type: "group", delta: 1 },
+  ]);
+  // With Ctrl or Alt as well, or another Meta key, it stays with the host.
+  assert.deepEqual(
+    press([
+      { key: "[", code: "BracketLeft", metaKey: true, ctrlKey: true },
+      { key: "“", code: "BracketLeft", metaKey: true, altKey: true },
+      { key: "j", code: "KeyJ", metaKey: true },
+    ]).handled,
+    [false, false, false],
+  );
+  // Not while typing, and a pending chord is dropped.
+  assert.deepEqual(press([{ key: "]", code: "BracketRight", metaKey: true }], "list", { typing: true }).commands, []);
+  assert.equal(press(["g", { key: "]", code: "BracketRight", metaKey: true }]).state.pending, null);
+});
+
 test("? toggles help", () => {
   assert.deepEqual(press(["?"]).commands, [{ type: "help" }]);
 });
@@ -130,7 +159,7 @@ test("! followed by anything else is cancelled and swallowed", () => {
   assert.deepEqual(press(["!", "9"]).commands, []);
 });
 
-test("modified keys are never claimed and reset a pending chord", () => {
+test("other modified keys are not claimed and reset a pending chord", () => {
   const result = press(["g", { key: "g", metaKey: true }]);
   assert.deepEqual(result.commands, []);
   assert.deepEqual(result.handled, [true, false]);
@@ -217,10 +246,10 @@ test("L links the selection to the thread", () => {
   assert.equal(handleKey(initialKeymapState, { key: "l" }, "list").command?.type, "label");
 });
 
-test("help groups follow navigate / tabs / create & edit / view", () => {
+test("help groups follow navigate / tabs / picker / create & edit / view", () => {
   assert.deepEqual(
     BINDING_GROUPS.map((group) => group.title),
-    ["Navigate", "Tabs", "Create & edit", "View", "In text fields"],
+    ["Navigate", "Tabs", "Project picker (gear)", "Create & edit", "View", "In text fields"],
   );
 });
 
@@ -243,4 +272,78 @@ test("every single key the list claims is in the help", () => {
     if (!result.handled || result.state.pending !== null) continue;
     assert.ok(listed.has(shown[key] ?? key), `${JSON.stringify(key)} is bound but not in the help`);
   }
+});
+
+// ---- the project picker ------------------------------------------------------
+
+const idlePicker = { typing: false, confirming: false };
+
+test("picker: j / k and arrows move, space toggles", () => {
+  assert.deepEqual(pickerKey({ key: "j" }, idlePicker), { type: "cursor", delta: 1 });
+  assert.deepEqual(pickerKey({ key: "ArrowDown" }, idlePicker), { type: "cursor", delta: 1 });
+  assert.deepEqual(pickerKey({ key: "k" }, idlePicker), { type: "cursor", delta: -1 });
+  assert.deepEqual(pickerKey({ key: "ArrowUp" }, idlePicker), { type: "cursor", delta: -1 });
+  assert.deepEqual(pickerKey({ key: " " }, idlePicker), { type: "toggle" });
+});
+
+test("picker: alt-j / alt-k and alt-arrows move the row, by code under Option", () => {
+  assert.deepEqual(pickerKey({ key: "∆", code: "KeyJ", altKey: true }, idlePicker), { type: "shift", delta: 1 });
+  assert.deepEqual(pickerKey({ key: "˚", code: "KeyK", altKey: true }, idlePicker), { type: "shift", delta: -1 });
+  assert.deepEqual(pickerKey({ key: "ArrowDown", altKey: true }, idlePicker), { type: "shift", delta: 1 });
+  assert.deepEqual(pickerKey({ key: "ArrowUp", altKey: true }, idlePicker), { type: "shift", delta: -1 });
+  assert.equal(pickerKey({ key: "j", code: "KeyJ", altKey: true, metaKey: true }, idlePicker), null);
+});
+
+test("picker: cmd-[ / cmd-] switch group; n, e, d manage it", () => {
+  assert.deepEqual(pickerKey({ key: "[", code: "BracketLeft", metaKey: true }, idlePicker), { type: "group", delta: -1 });
+  assert.deepEqual(pickerKey({ key: "]", code: "BracketRight", metaKey: true }, idlePicker), { type: "group", delta: 1 });
+  assert.deepEqual(pickerKey({ key: "n" }, idlePicker), { type: "newGroup" });
+  assert.deepEqual(pickerKey({ key: "e" }, idlePicker), { type: "renameGroup" });
+  assert.deepEqual(pickerKey({ key: "d" }, idlePicker), { type: "deleteGroup" });
+  // Other keys, and other modified keys, are left alone.
+  for (const input of [{ key: "x" }, { key: "Escape" }, { key: "Enter" }, { key: "j", ctrlKey: true }, { key: "n", metaKey: true }]) {
+    assert.equal(pickerKey(input, idlePicker), null, input.key);
+  }
+});
+
+test("picker: nothing fires while a name input has focus", () => {
+  const typing = { typing: true, confirming: false };
+  for (const input of [{ key: "j" }, { key: " " }, { key: "n" }, { key: "Enter" }, { key: "]", code: "BracketRight", metaKey: true }]) {
+    assert.equal(pickerKey(input, typing), null, input.key);
+  }
+});
+
+test("picker: a pending delete takes Enter to confirm and any other key to cancel", () => {
+  const confirming = { typing: false, confirming: true };
+  assert.deepEqual(pickerKey({ key: "Enter" }, confirming), { type: "confirmDelete" });
+  assert.deepEqual(pickerKey({ key: "j" }, confirming), { type: "cancelDelete" });
+  assert.deepEqual(pickerKey({ key: "Enter", metaKey: true }, confirming), { type: "cancelDelete" });
+  // Esc is the dialog's; a bare modifier press is no answer.
+  assert.equal(pickerKey({ key: "Escape" }, confirming), null);
+  assert.equal(pickerKey({ key: "Shift" }, confirming), null);
+});
+
+test("every key the picker claims is in its help group", () => {
+  const picker = BINDING_GROUPS.find((group) => group.title === "Project picker (gear)")!;
+  const listed = new Set(picker.bindings.flatMap((binding) => binding.keys));
+  const shown: Record<string, string> = { ArrowDown: "↓", ArrowUp: "↑", " ": "space", Escape: "esc" };
+  const name = (input: KeyInput) =>
+    `${input.metaKey ? "⌘" : input.altKey ? "alt-" : ""}${shown[input.key] ?? input.key}`;
+  const inputs: KeyInput[] = [
+    ...[..."abcdefghijklmnopqrstuvwxyz[]", ...Object.keys(shown)].map((key) => ({ key })),
+    { key: "[", code: "BracketLeft", metaKey: true },
+    { key: "]", code: "BracketRight", metaKey: true },
+    { key: "j", altKey: true },
+    { key: "k", altKey: true },
+    { key: "ArrowDown", altKey: true },
+    { key: "ArrowUp", altKey: true },
+  ];
+  let claimed = 0;
+  for (const input of inputs) {
+    if (pickerKey(input, idlePicker) === null) continue;
+    claimed += 1;
+    assert.ok(listed.has(name(input)), `${name(input)} is bound in the picker but not in its help`);
+  }
+  // j k n e d, ↓ ↑ space, ⌘[ ⌘], alt-j alt-k alt-↓ alt-↑
+  assert.equal(claimed, 14);
 });

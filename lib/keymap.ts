@@ -2,8 +2,8 @@
 // commands, so chords (`g g`, `! 1`) are testable without a DOM.
 //
 // The panel feeds it keydown events while it has focus and runs the returned
-// command. Keys with Ctrl/Meta/Alt are never claimed, so host shortcuts keep
-// working. While a text field has focus, `handleKey` claims nothing; the
+// command. Keys with Ctrl/Meta/Alt are not claimed, so host shortcuts keep
+// working; the exceptions are `alt-[` / `alt-]` and `cmd-[` / `cmd-]`. While a text field has focus, `handleKey` claims nothing; the
 // field asks `inputKey` instead, which only knows Esc and the save chords.
 
 export type Pane = "list" | "detail";
@@ -18,6 +18,7 @@ export type KeyCommand =
   | { type: "scrollDetail"; delta: number }
   | { type: "tab"; delta: 1 | -1 }
   | { type: "moveTab"; delta: 1 | -1 }
+  | { type: "group"; delta: 1 | -1 }
   | { type: "help" }
   | { type: "clearFilter" }
   | { type: "newIssue" }
@@ -85,14 +86,25 @@ const idle = (command: KeyCommand | null, handled = command !== null): KeyResult
 });
 
 /**
- * `alt-[` / `alt-]`: move the current tab. The only modified keys the panel
- * claims. macOS turns Option+[ into `“`, so the physical `code` decides
+ * `alt-[` / `alt-]`: move the current tab. With `groupKey`, the only modified
+ * keys the panel claims. macOS turns Option+[ into `“`, so the physical `code` decides
  * when the caller reports one.
  */
 function moveTabKey(input: KeyInput): 1 | -1 | null {
   if (input.altKey !== true || input.ctrlKey === true || input.metaKey === true) return null;
   if (input.code === "BracketLeft" || input.key === "[") return -1;
   if (input.code === "BracketRight" || input.key === "]") return 1;
+  return null;
+}
+
+/**
+ * `cmd-[` / `cmd-]`: switch to the previous / next group. Detected by the
+ * physical `code`, as for `alt-[` / `alt-]`, so a remapped `key` cannot miss.
+ */
+function groupKey(input: KeyInput): 1 | -1 | null {
+  if (input.metaKey !== true || input.ctrlKey === true || input.altKey === true) return null;
+  if (input.code === "BracketLeft") return -1;
+  if (input.code === "BracketRight") return 1;
   return null;
 }
 
@@ -114,6 +126,8 @@ export function handleKey(
   if (context.typing) return { state: initialKeymapState, command: null, handled: false };
   const moveTab = moveTabKey(input);
   if (moveTab !== null) return idle({ type: "moveTab", delta: moveTab });
+  const group = groupKey(input);
+  if (group !== null) return idle({ type: "group", delta: group });
   if (input.ctrlKey || input.metaKey || input.altKey) {
     return { state: initialKeymapState, command: null, handled: false };
   }
@@ -232,6 +246,76 @@ export function inputKey(input: KeyInput & { shiftKey?: boolean }, field: FieldK
   return null;
 }
 
+// ---- the project picker -----------------------------------------------------
+
+export type PickerCommand =
+  /** Move the highlighted row. */
+  | { type: "cursor"; delta: 1 | -1 }
+  /** Check or uncheck the highlighted row (in or out of the group being edited). */
+  | { type: "toggle" }
+  /** Move the highlighted checked row up or down within the group. */
+  | { type: "shift"; delta: 1 | -1 }
+  /** Edit the previous / next group (it becomes the active group). */
+  | { type: "group"; delta: 1 | -1 }
+  | { type: "newGroup" }
+  | { type: "renameGroup" }
+  /** Ask to delete the group being edited (a confirm step follows). */
+  | { type: "deleteGroup" }
+  | { type: "confirmDelete" }
+  | { type: "cancelDelete" };
+
+export interface PickerContext {
+  /** An inline name input has focus: it handles Enter / Esc itself. */
+  typing: boolean;
+  /** A delete is waiting for Enter (confirm) or any other key (cancel). */
+  confirming: boolean;
+}
+
+/** Alt+j / Alt+k / Alt+↓ / Alt+↑. macOS rewrites `key` under Option, so `code` decides. */
+function pickerShiftKey(input: KeyInput): 1 | -1 | null {
+  if (input.altKey !== true || input.ctrlKey === true || input.metaKey === true) return null;
+  if (input.code === "KeyJ" || input.key === "ArrowDown" || input.key === "j") return 1;
+  if (input.code === "KeyK" || input.key === "ArrowUp" || input.key === "k") return -1;
+  return null;
+}
+
+/**
+ * Keys of the project picker dialog (the gear in the tab strip). Esc is not here: the
+ * dialog closes on it, after cancelling an inline input or a pending delete.
+ * Null means the key is not the picker's and should be left alone.
+ */
+export function pickerKey(input: KeyInput, context: PickerContext): PickerCommand | null {
+  if (context.typing || MODIFIER_KEYS.has(input.key)) return null;
+  if (context.confirming) {
+    if (input.key === "Escape") return null;
+    const plain = !input.ctrlKey && !input.metaKey && !input.altKey;
+    return plain && input.key === "Enter" ? { type: "confirmDelete" } : { type: "cancelDelete" };
+  }
+  const group = groupKey(input);
+  if (group !== null) return { type: "group", delta: group };
+  const shift = pickerShiftKey(input);
+  if (shift !== null) return { type: "shift", delta: shift };
+  if (input.ctrlKey || input.metaKey || input.altKey) return null;
+  switch (input.key) {
+    case "j":
+    case "ArrowDown":
+      return { type: "cursor", delta: 1 };
+    case "k":
+    case "ArrowUp":
+      return { type: "cursor", delta: -1 };
+    case " ":
+      return { type: "toggle" };
+    case "n":
+      return { type: "newGroup" };
+    case "e":
+      return { type: "renameGroup" };
+    case "d":
+      return { type: "deleteGroup" };
+    default:
+      return null;
+  }
+}
+
 export interface Binding {
   keys: readonly string[];
   label: string;
@@ -264,6 +348,24 @@ export const BINDING_GROUPS: readonly BindingGroup[] = [
       { keys: ["]"], label: "next tab" },
       { keys: ["alt-["], label: "move tab left" },
       { keys: ["alt-]"], label: "move tab right" },
+      { keys: ["⌘["], label: "prev group" },
+      { keys: ["⌘]"], label: "next group" },
+    ],
+  },
+  {
+    title: "Project picker (gear)",
+    bindings: [
+      { keys: ["j", "↓"], label: "next project" },
+      { keys: ["k", "↑"], label: "previous project" },
+      { keys: ["space"], label: "add to / remove from group" },
+      { keys: ["alt-j", "alt-↓"], label: "move project down" },
+      { keys: ["alt-k", "alt-↑"], label: "move project up" },
+      { keys: ["⌘["], label: "prev group" },
+      { keys: ["⌘]"], label: "next group" },
+      { keys: ["n"], label: "new group" },
+      { keys: ["e"], label: "rename group" },
+      { keys: ["d"], label: "delete group (enter confirms)" },
+      { keys: ["esc"], label: "cancel / close" },
     ],
   },
   {

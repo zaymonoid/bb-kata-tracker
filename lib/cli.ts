@@ -169,21 +169,19 @@ export function buildKataCli(deps: KataCliDeps): PluginCliRegistration {
       "Talks to the kata daemon directly. The project comes from --project, a qualified ref (project#abc4), or the thread's .kata.toml binding. Close only verified work, always with a message; otherwise label needs-review and comment. Never delete issues.",
     commands: {
       projects: cliCommand({
-        summary: "List kata projects: included in the viewer, bound bb projects",
+        summary: "List kata projects: in the active group (the viewer's tabs), bound bb projects",
         options: { json: jsonOption },
         run: ({ options }) => safe(async () => {
-          const projects = await service.projects();
-          if (options.json) return json({ projects });
-          return out(
-            projects
-              .map(
-                (p) =>
-                  `${p.name}  id ${p.id}  uid ${p.uid}${p.included ? "  [included]" : ""}${
-                    p.boundBy.length ? `  bound: ${p.boundBy.map((b) => b.name).join(", ")}` : ""
-                  }`,
-              )
-              .join("\n") || "no kata projects",
+          const { group, projects } = await service.projects();
+          if (options.json) return json({ group, projects });
+          const lines = projects.map(
+            (p) =>
+              `${p.name}  id ${p.id}  uid ${p.uid}${p.included ? "  [included]" : ""}${
+                p.boundBy.length ? `  bound: ${p.boundBy.map((b) => b.name).join(", ")}` : ""
+              }`,
           );
+          if (lines.length === 0) return out("no kata projects");
+          return out([...lines, `[included]: in the active group, ${group?.name ?? "(none)"}`].join("\n"));
         }),
       }),
 
@@ -505,7 +503,7 @@ export function buildKataCli(deps: KataCliDeps): PluginCliRegistration {
       }),
 
       include: cliCommand({
-        summary: "Show a kata project as a tab in the Kata viewer",
+        summary: "Add a kata project to the active group, as a tab in the Kata viewer",
         positionals: [{ name: "project", description: "Kata project name, uid or id", required: true }],
         options: { json: jsonOption },
         run: ({ options, positionals }) => safe(async () => {
@@ -515,12 +513,38 @@ export function buildKataCli(deps: KataCliDeps): PluginCliRegistration {
       }),
 
       exclude: cliCommand({
-        summary: "Remove a kata project's tab from the Kata viewer",
+        summary: "Take a kata project out of the active group (its tab in the Kata viewer)",
         positionals: [{ name: "project", description: "Kata project name, uid or id", required: true }],
         options: { json: jsonOption },
         run: ({ options, positionals }) => safe(async () => {
           const r = await service.setIncluded(positionals.project, false);
           return options.json ? json(r) : out(`excluded ${r.project.name}; tabs: ${r.included.join(", ") || "(none)"}`);
+        }),
+      }),
+
+      groups: cliCommand({
+        summary: "List project groups; * marks the active one, whose projects are the viewer's tabs",
+        options: { json: jsonOption },
+        run: ({ options }) => safe(async () => {
+          const groups = await service.groups();
+          if (options.json) return json({ groups });
+          return out(
+            groups
+              .map((g) => `${g.active ? "*" : " "} ${g.name}  id ${g.id}  ${g.projects.length} project${g.projects.length === 1 ? "" : "s"}`)
+              .join("\n"),
+          );
+        }),
+      }),
+
+      "group use": cliCommand({
+        summary: "Make a project group active: the viewer's tabs become its projects",
+        positionals: [{ name: "group", description: "Group name or id (see bb kata groups)", required: true }],
+        options: { json: jsonOption },
+        run: ({ options, positionals }) => safe(async () => {
+          const r = await service.useGroup(positionals.group);
+          if (options.json) return json(r);
+          const tabs = r.group.projects.join(", ") || "(none)";
+          return out(`${r.changed ? "active group" : "already active"}: ${r.group.name}; tabs: ${tabs}`);
         }),
       }),
     },

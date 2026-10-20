@@ -2,8 +2,9 @@
 
 A keyboard-first viewer and editor for the local [kata](https://www.katatracker.com)
 issue tracker inside bb, modelled on `kata tui`. You get one tab per kata project
-you choose, the issue list on the left, and the issue detail on the right. It
-updates live from the kata daemon. There is also a `bb kata` CLI and a set of
+you choose, the issue list on the left, and the issue detail on the right. Tabs
+live in named groups (say, work and personal) that you switch with `⌘[` / `⌘]`.
+It updates live from the kata daemon. There is also a `bb kata` CLI and a set of
 agent tools, so bb threads can work with kata issues directly.
 
 Developer notes (file map, data flow, what was verified) are in
@@ -33,13 +34,30 @@ bb plugin install . --yes      # afterwards: bb plugin reload kata
 Open **Kata** in the sidebar, or press **⌘⇧K** (palette: "Kata: open issue viewer").
 The list takes keyboard focus.
 
-- **Tabs.** Use the `+` tab to choose which kata projects appear as tabs, and
-  in what order. No projects are shown until you choose some. Your choice is
-  saved in the `includedProjects` setting. `[` / `]` switch tabs. Each tab keeps
-  its own selection, filter and status view.
+- **Tabs.** The tabs are the active group's projects. No projects are shown
+  until you choose some. `[` / `]` switch tabs and wrap within the group. Each
+  tab keeps its own selection, filter and status view.
+- **Groups.** A group is a named, ordered list of projects; a project may be
+  in several groups or none. One group is active. `⌘[` / `⌘]` switch to the
+  previous / next group, and with two or more groups the strip starts with a
+  pill per group, the active one named and the others shown as their first
+  letter (click one to switch). Switching back to a group lands on
+  the tab you last had open in it (remembered until the page reloads). The
+  active group is saved in the `projectGroups` setting, and `bb kata groups` /
+  `bb kata group use` list and switch groups from a terminal.
+- **The gear** at the end of the tab strip opens the project picker. It edits
+  one group: the active one. Its header lists the groups; choosing another one
+  there makes it the active group, and the tabs follow. `+ new group` adds an
+  empty group and makes it active. The pencil renames the active group, and
+  the bin deletes it after you confirm (its projects are not touched; the group
+  before it becomes active, or the next one if it was first). The only group
+  cannot be deleted. Below, checked projects are the group's projects: first,
+  in tab order, then the rest alphabetically. Drag a checked row by its handle
+  to reorder. A row also shows the other groups its project is in; click one to
+  edit that group. Every change is saved at once.
 - **Reorder tabs.** Drag a tab along the strip; a bar shows where it lands, and
   the new order is saved on drop. `alt-[` / `alt-]` move the current tab
-  without the mouse, and the `+` tab's arrows still work. A *visiting* tab
+  without the mouse. A *visiting* tab
   (shown for an issue outside your tabs) does not move: it is not saved.
 - **Status view.** `s` cycles the tab through open → all → closed. The tab shows
   an `ALL` or `CLOSED` badge. Closed and all lists are fetched when you first ask
@@ -72,6 +90,15 @@ The list takes keyboard focus.
 | | `esc` | back / clear filter |
 | Tabs | `[` / `]` | prev / next tab |
 | | `alt-[` / `alt-]` | move tab left / right (saves the order) |
+| | `⌘[` / `⌘]` | prev / next group |
+| Project picker (gear) | `j` `↓` / `k` `↑` | next / previous project |
+| | `space` | add the project to the group, or take it out |
+| | `alt-j` `alt-↓` / `alt-k` `alt-↑` | move a checked project down / up |
+| | `⌘[` / `⌘]` | edit the prev / next group (it becomes active) |
+| | `n` | new group: type a name, `enter` to create, `esc` to cancel |
+| | `e` | rename the group (`enter` / `esc`) |
+| | `d` | delete the group: `enter` confirms, any other key cancels |
+| | `esc` | cancel the name or delete, else close |
 | Create & edit | `n` | new issue: inline row at the top. `enter` to save, `⇧enter` or `ctrl-o` to add a body, `esc` to cancel. The new issue is selected, so `!` works right away |
 | | `N` | new child of the selection |
 | | `! 0`…`! 4` | priority P0–P4 |
@@ -130,7 +157,7 @@ take `--json`.
 
 | Command | Does |
 | --- | --- |
-| `projects` | kata projects, which are viewer tabs, bound bb projects |
+| `projects` | kata projects, which are in the active group (`[included]`, the viewer tabs), bound bb projects |
 | `list [--status open\|closed\|all] [--priority N] [--label L]… [--owner A \| --unowned] [--limit 50]` | Issues sorted by priority, then last update |
 | `ready [--label L]… [--limit N]` | Open issues with no open blockers |
 | `search <query…>` | Title, body and comments; open and closed |
@@ -143,7 +170,9 @@ take `--json`.
 | `close <ref> --done\|--wontfix\|--duplicate-of R\|--superseded-by R --message … [--evidence k:v]… [--dry-run]` | Close, following kata's rules for non-TUI closes |
 | `reopen <ref>` | Reopen |
 | `link <ref>` / `unlink` / `linked` | This thread's issue link |
-| `include <project>` / `exclude <project>` | Add or remove a viewer tab |
+| `include <project>` / `exclude <project>` | Add a project to the active group (a viewer tab), or take it out |
+| `groups` | Project groups: `*` marks the active one, with each group's project count |
+| `group use <name\|id>` | Make a group active; the viewer's tabs become its projects. A name matches exactly, then ignoring case; when two groups share it, pass the id |
 
 ## Agent tools
 
@@ -167,7 +196,8 @@ work `needs-review` instead, and never to delete anything.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `includedProjects` | `[]` | JSON array of kata project uids shown as tabs, in order. Tab drags, `alt-[` / `alt-]`, the `+` tab and `bb kata include` / `exclude` all edit it |
+| `includedProjects` | `[]` | JSON array of kata project uids shown as tabs, in order. It mirrors the active group's projects: the plugin rewrites it whenever they change (tab drags, `alt-[` / `alt-]`, the picker, `bb kata include` / `exclude`, switching groups), and editing it directly replaces them |
+| `projectGroups` | empty | JSON `{"groups": [{"id", "name", "projectUids"}], "activeGroupId"}`. A group is a named, ordered list of projects; a project may be in several groups or none. The tabs are the active group's projects. Empty is filled on load with one "Projects" group made from `includedProjects` |
 | `actor` | empty | Name recorded on changes made from bb. Empty means `$KATA_AUTHOR`, then `$USER` |
 
 ## When the daemon is down

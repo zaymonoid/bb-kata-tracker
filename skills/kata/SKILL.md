@@ -75,7 +75,8 @@ bb kata close <ref> --done --message "…" --evidence test:"npm test"
 bb kata close <ref> --wontfix | --duplicate-of REF | --superseded-by REF --message "…" [--dry-run]
 bb kata reopen <ref>
 bb kata link <ref> | bb kata unlink | bb kata linked   # this thread (or --thread thr_…)
-bb kata include <project> | bb kata exclude <project>  # tabs in the Kata viewer
+bb kata include <project> | bb kata exclude <project>  # the active group's projects (viewer tabs)
+bb kata groups | bb kata group use <name|id>           # project groups; * marks the active one
 ```
 
 List output is one line per issue, priority first:

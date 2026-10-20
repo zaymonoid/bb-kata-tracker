@@ -9,6 +9,7 @@
 // reconciled view; the raw server lists stay private here.
 import type { PluginRpcClient } from "@get-bb/plugin-sdk/app";
 import type { CloseReason } from "./close-rules";
+import { activeProjectUids, rememberTab, setGroupProjects, tabOnSwitch, type ProjectGroups } from "./groups";
 import type { KataRpcContract } from "./rpc-contract";
 import type { KataIssue, KataIssueDetail, KataLinkPeer, KataProject } from "./kata-types";
 import { reconcile, type Lingering, type PendingEdit, type StatusView } from "./optimistic";
@@ -30,9 +31,16 @@ export interface ProjectList {
 export interface ViewerState {
   projects: KataProject[] | null;
   projectsError: string | null;
-  /** Included project uids in tab order; null until loaded. */
+  /** Project groups and which one is active; null until loaded. */
+  groups: ProjectGroups | null;
+  /** The active group's project uids in tab order; null until loaded. */
   included: string[] | null;
   activeUid: string | null;
+  /**
+   * The tab last shown in each group (group id → project uid), so switching
+   * back to a group lands where you left it. Kept by `patch`; not persisted.
+   */
+  activeTabByGroup: Readonly<Record<string, string>>;
   /** The shown list per project, in that project's status view. */
   lists: Readonly<Record<string, ProjectList>>;
   /** Status view per project tab (absent = open). */
@@ -70,8 +78,10 @@ const NO_EXPANDED: ReadonlySet<string> = new Set();
 let state: ViewerState = {
   projects: null,
   projectsError: null,
+  groups: null,
   included: null,
   activeUid: null,
+  activeTabByGroup: {},
   lists: {},
   status: {},
   openCounts: {},
@@ -100,6 +110,11 @@ export const viewerStore = {
 
 export function patch(next: Partial<ViewerState>) {
   state = { ...state, ...next };
+  // Whatever changed the tab or the groups, remember the active group's tab.
+  if ("activeUid" in next || "groups" in next) {
+    const activeTabByGroup = rememberTab(state.activeTabByGroup, state.groups, state.activeUid);
+    if (activeTabByGroup !== state.activeTabByGroup) state = { ...state, activeTabByGroup };
+  }
   listeners.forEach((listener) => listener());
 }
 
@@ -277,6 +292,9 @@ export const isShown = (uid: string) =>
   (state.included ?? []).includes(uid) || pinned.has(uid) || uid === state.visiting;
 
 export function applyIncluded(rpc: Rpc, uids: string[]) {
+  // Keep the active group in step, so `groups` and `included` never disagree.
+  const groups = state.groups === null ? null : setGroupProjects(state.groups, state.groups.activeGroupId, uids);
+  if (groups !== state.groups) patch({ groups });
   const visiting = state.visiting !== null && !uids.includes(state.visiting) ? state.visiting : null;
   const keep = (uid: string) => uids.includes(uid) || pinned.has(uid) || uid === visiting;
   const lists: Record<string, ProjectList> = {};
@@ -299,6 +317,40 @@ export async function loadIncluded(rpc: Rpc): Promise<void> {
   }
 }
 
+/**
+ * Take new groups; the tabs follow the active group's projects. Switching to
+ * another group lands on the tab last shown in it (`tabOnSwitch`) and drops a
+ * visited tab, wherever the switch came from (the panel, `bb kata group use`).
+ */
+export function applyGroups(rpc: Rpc, groups: ProjectGroups) {
+  const uids = activeProjectUids(groups);
+  if (state.groups !== null && groups.activeGroupId !== state.groups.activeGroupId) {
+    const activeUid = tabOnSwitch(uids, state.activeUid, state.activeTabByGroup[groups.activeGroupId]);
+    patch({ groups, activeUid, visiting: null });
+  } else patch({ groups });
+  applyIncluded(rpc, uids);
+}
+
+export async function loadGroups(rpc: Rpc): Promise<void> {
+  try {
+    applyGroups(rpc, await rpc.call("groups.get"));
+  } catch (error) {
+    patch({ projectsError: message(error) });
+  }
+}
+
+/** Persist new groups; the UI updates immediately. */
+export async function setGroups(rpc: Rpc, next: ProjectGroups): Promise<void> {
+  const previous = state.groups;
+  applyGroups(rpc, next);
+  try {
+    applyGroups(rpc, await rpc.call("groups.set", next));
+  } catch (error) {
+    if (previous !== null) applyGroups(rpc, previous);
+    throw error;
+  }
+}
+
 /** Persist a new included order; the UI updates immediately. */
 export async function setIncluded(rpc: Rpc, uids: string[]): Promise<void> {
   const previous = state.included ?? [];
@@ -316,7 +368,7 @@ export async function setIncluded(rpc: Rpc, uids: string[]): Promise<void> {
 export function refreshAll(rpc: Rpc) {
   void loadDaemonStatus(rpc);
   void loadProjects(rpc);
-  void loadIncluded(rpc).then(() => {
+  void Promise.all([loadIncluded(rpc), loadGroups(rpc)]).then(() => {
     for (const uid of state.included ?? []) void loadList(rpc, uid);
     if (state.visiting !== null) void loadList(rpc, state.visiting);
   });

@@ -1,4 +1,4 @@
-# Kata plugin — overview (T1–T8)
+# Kata plugin — overview (T1–T11)
 
 User-facing docs (install, keymap, CLI, tools, settings): [README.md](README.md).
 
@@ -8,27 +8,61 @@ list on the left, detail on the right, kept live from kata's event log.
 
 ## What exists
 
-- **Kata sidebar page** (`/plugins/kata/kata`): project tabs plus a `+` tab that
-  opens the project picker (check projects to include them, arrows to reorder).
+- **Kata sidebar page** (`/plugins/kata/kata`): project tabs plus a gear that
+  opens the project picker (see below).
   Tabs are also dragged to reorder, or moved with `alt-[` / `alt-]` (T8).
+  With two or more groups, a segment pinned left of the tabs (outside their
+  scroll area) shows a pill per group, the active one filled with its full name, the
+  others muted and reduced to their first letter; a click or
+  `⌘[` / `⌘]` makes another group active (`groups.set`, so it survives a
+  reload) and the tabs become its projects, landing on the tab last shown in
+  that group (T11). Switching drops a visiting tab.
+  With one group the segment is hidden. Thread panels ignore groups.
+- **Project picker** (`components/project-picker.tsx`): a checklist for one
+  group, always the active group. The header shows the same chips as the
+  strip (`components/group-chips.tsx`); choosing one there, a membership chip
+  on a row, or `⌘[` / `⌘]` makes that group active, so the dialog and the
+  strip never disagree. `+ new group` (`n`) and rename (`e`) open an inline
+  name input in the header (Enter saves, Esc cancels). Delete (`d` or the
+  bin) asks first ("Delete Work? enter / esc"); the group before it (or the
+  next one, when it was first) becomes active, and the only group cannot be deleted (the button is disabled).
+  Checked rows are the group's projects, first and in tab order, then the
+  rest alphabetically. Checked rows have a drag handle and reorder like tabs
+  (a bar marks the gap, the drop goes through `moveToSlot`), or with
+  `alt-j` / `alt-k`. Each row has dim chips naming the other groups its project
+  is in (hidden with one group). Keys come from `pickerKey` in `lib/keymap.ts`
+  and do nothing while a name input has focus; the buttons and chips never
+  take focus, so the list keeps the keyboard. Every edit is a pure function
+  from `lib/groups.ts` (`activateGroup`, `stepGroup`, `addGroup`,
+  `renameGroup`, `removeGroup`, `setGroupProjects`, `toggleGroupProject`) and
+  is saved through the panel's `saveGroups` → `setGroups` → `groups.set`. That
+  is the only write path for the picker; `included.set` is not called.
   Rows show status glyph, priority chip, short id, title, labels and owner. The
   detail pane shows title, qualified id, status, priority, owner, labels, the
   markdown body, parent, children, blocked-by, blocks, related, and comments.
 - **Keyboard** (while the panel has focus): `j`/`k`/arrows, `g g`/`G`,
   `Home`/`End`, `PgUp`/`PgDn`, `Enter` (detail) / `Esc` (list, or clear the
-  filter), `[`/`]` (tabs), `alt-[`/`alt-]` (move the tab), `?` (help). Editing keys are listed under T2 below.
+  filter), `[`/`]` (tabs, within the active group), `alt-[`/`alt-]` (move the tab),
+  `⌘[`/`⌘]` (switch group), `?` (help). Editing keys are listed under T2 below.
 - **Palette command** "Kata: open issue viewer", default ⌘⇧K.
-- **Settings**: `includedProjects` (JSON array of kata project uids, default
-  `[]`, also edited by the picker) and `actor` (empty = `$KATA_AUTHOR`/`$USER`;
+- **Settings**: `projectGroups` (JSON `{groups: [{id, name, projectUids}],
+  activeGroupId}`; groups are overlays, so a project may be in several or
+  none; the tabs are the active group's projects; `lib/groups-schema.ts`
+  parses it, `lib/groups.ts` normalizes and edits it; empty is filled on load
+  from `includedProjects`),
+  `includedProjects` (JSON array of kata project uids, default `[]`, also
+  edited by the picker; a mirror of the active group's projects: server.ts
+  writes it whenever they change, and a direct edit replaces them) and `actor` (empty = `$KATA_AUTHOR`/`$USER`;
   recorded on every mutation).
-- **RPC**: `daemon.status` (T6), `projects.list`, `included.get/set`, `issues.list`
+- **RPC**: `daemon.status` (T6), `projects.list`, `included.get/set` (the active group's projects),
+  `groups.get/set`, `issues.list`
   (`open` from the warm cache, `closed`/`all` straight from the daemon),
   `issues.get`, `labels.list`, and the T2 mutations below.
 - **Live updates**: the `event-tail` service polls `GET /api/v1/events` about
   once a second from the log head. Events for included projects refetch that
   project's open list and publish `{type:"issues.changed", projectUid}` on the
-  realtime channel `kata`. It also publishes `included.changed` and
-  `daemon.status`.
+  realtime channel `kata`. It also publishes `groups.changed`,
+  `included.changed` (the active group's projects) and `daemon.status`.
 
 ## T2: rapid entry and prioritization
 
@@ -629,11 +663,11 @@ It did not recur in T2–T6. No fix was made.
   `included.set` — the same path as the picker's arrows. `setIncluded` already
   applies the new order to the store before the RPC and rolls back on failure,
   so the strip does not flicker or refetch (`applyIncluded` keeps the cached
-  lists). The `+` tab and a *visiting* tab (T5, not in `includedProjects`) are
+  lists). The gear and a *visiting* tab (T5, not in `includedProjects`) are
   neither draggable nor drop targets; the visiting tab always sits last, and it
   owns the trailing gap so a drop before it still lands at the end.
 - **Keyboard parity**: `alt-[` / `alt-]` move the current tab
-  (`{type:"moveTab"}`). These are the only modified keys `handleKey` claims, so
+  (`{type:"moveTab"}`). These are the only modified keys `handleKey` claims (T11 adds `⌘[` / `⌘]`), so
   the check sits ahead of the "never claim Ctrl/Meta/Alt" rule. macOS rewrites
   `key` under Option (`“`, `‘`), so `moveTabKey` reads the physical
   `code` (`BracketLeft` / `BracketRight`) when the caller reports one, and
@@ -820,6 +854,85 @@ enter).
 - Nav page: the sidebar row focused the list, `j` moved the selection and `]`
   switched tabs. No console errors from the plugin.
 
+## T11: project groups
+
+Built in three commits (model and setting; strip and `⌘[` / `⌘]`; the
+group-scoped picker) plus a polish pass (remembered tabs, CLI, docs).
+
+- **The model** (`lib/groups.ts`, pure and zod-free). A group is
+  `{id, name, projectUids}`: a named, ordered list of kata project uids.
+  Groups are **overlays**, not partitions: a project may be in several groups
+  or in none, and deleting a group never touches its projects. Exactly one
+  group is **active**, and the tabs are the projects of the active group.
+  `normalizeGroups` drops duplicate ids, dedupes each group's projects, points
+  a dangling `activeGroupId` at the first group, and makes one empty
+  "Projects" group when there are none, so there is always an active group.
+  Every edit (`activateGroup`, `stepGroup`, `addGroup`, `renameGroup`,
+  `removeGroup`, `shiftGroup`, `setGroupProjects`, `toggleGroupProject`)
+  returns the value it was given when nothing changes, so a caller can skip
+  the save. The zod schema and the setting parser live apart in
+  `lib/groups-schema.ts` (server and RPC contract only), so the panel bundle
+  stays zod-free.
+- **Two settings, one mirroring rule** (`server.ts`). `projectGroups` (JSON
+  `{groups, activeGroupId}`) is the source of truth. `includedProjects` is a
+  mirror of the active group's projects for older readers: the server
+  rewrites it whenever they change, and a direct edit of `includedProjects`
+  replaces the active group's projects. An empty `projectGroups` is filled on
+  load with one "Projects" group made from `includedProjects` (saved by the
+  `project-groups` background service once loading is done); clearing it
+  later rebuilds it from the tabs shown then. Our own writes are recognised
+  by their raw value, so their `onChange` echo is ignored.
+- **RPCs and signals.** `groups.get` answers the normalized groups;
+  `groups.set` normalizes, saves and answers what was saved. `included.get`
+  / `included.set` still work and read or replace the active group's
+  projects. Every change publishes `groups.changed` (the whole value) and,
+  when the tabs changed, `included.changed`.
+- **The strip** (`components/project-tabs.tsx`). With two or more groups, a
+  segment pinned left of the tabs, outside their scroll area, holds a chip per
+  group (`components/group-chips.tsx`, shared with the picker), the active one
+  underlined. A click or `⌘[` / `⌘]` (`stepGroup`, wrapping) activates
+  another group. With one group the segment is hidden. Thread panels ignore
+  groups: they are pinned to one project.
+- **Remembered tabs** (frontend only). `viewer-store.activeTabByGroup` maps a
+  group id to the tab last shown in it. `patch` records it whenever
+  `activeUid` or `groups` change and the active tab is one of the active
+  group's projects (`rememberTab`; a visiting tab is never recorded).
+  `applyGroups` picks the tab on a group switch with `tabOnSwitch`: the
+  remembered tab while it is still in the group, else the current tab when the
+  group has it, else the group's first project. The panel's `saveGroups`
+  predicts the same tab to reset the per-tab UI. It is module-level state like
+  the rest of the store, so it lasts until a page reload and is not saved. A
+  switch from elsewhere (`groups.changed` after `bb kata group use`) lands the
+  same way.
+- **The picker** (`components/project-picker.tsx`) edits one group, always the
+  active one; see *What exists* above for its header (chips, new, rename,
+  delete with a confirm step), the checklist order, drag and `alt-j` /
+  `alt-k` reordering, and the membership chips. Every edit is saved through
+  `setGroups` → `groups.set`.
+- **Keys.** Strip: `⌘[` / `⌘]` previous / next group, the only Meta chords
+  `handleKey` claims, read by `code` like `alt-[`. Picker (`pickerKey`):
+  `j` / `k`, `space`, `alt-j` / `alt-k`, `⌘[` / `⌘]`, `n`, `e`, `d` (then
+  `enter` confirms, any other key cancels), `esc`. The `?` overlay lists both
+  sets, one key per row where the labels differ (T7); a test checks every key
+  the picker claims is in its help group.
+- **CLI** (`lib/kata-service.ts`, `lib/cli.ts`). `bb kata include` / `exclude`
+  edit the active group's projects. `bb kata groups` lists the groups, `*`
+  marking the active one, with each group's project count (`--json` adds the
+  project names). `bb kata group use <name|id>` activates a group
+  (`findGroups`: the id, then the exact name, then the name ignoring case; two
+  matches fail with `group_ambiguous` and list their ids; none fails with
+  `group_not_found` and lists the names). `bb kata projects` ends with a line
+  naming the group its `[included]` marker refers to, and its `--json` gains
+  `group`. There are no agent tools for groups, on purpose.
+
+### Verified (2026-10-20)
+
+`npm test` (157 pass, 7 new: `tabOnSwitch`, `rememberTab`, `findGroups`, the
+three CLI commands, the picker help coverage), `npm run typecheck`, `npm run
+build`. Not checked live in bb this pass (no install or reload): the
+remembered tab on a real group switch, the overlay's column balance with the
+picker group, and `bb kata group use` against a running plugin.
+
 ## File map
 
 | Path | Role |
@@ -831,7 +944,7 @@ enter).
 | `lib/issue-store.ts` | Per-included-project open-issue cache and the event tailer |
 | `lib/rpc-contract.ts` | `defineRpcContract` shared by server and app (type-only in the app) |
 | `lib/signals.ts` | Realtime channel + signal types (zod-free for the app bundle) |
-| `lib/keymap.ts` | Pure key/chord state machine, text-field key gating (`inputKey`), help binding table |
+| `lib/keymap.ts` | Pure key/chord state machine, text-field key gating (`inputKey`), picker keys (`pickerKey`), help binding table |
 | `lib/viewer-store.ts` | Module-level frontend store: every included list stays cached; optimistic mutations |
 | `lib/optimistic.ts` | Pure reconcile of server list + confirmed + lingering + pending edits |
 | `lib/tree.ts` | Pure nested/flat rows with box-drawing guides, filter, orphan handling |
@@ -850,7 +963,7 @@ enter).
 | `components/thread-header.tsx` | Thread header control, popover, link typeahead |
 | `components/thread-issues-panel.tsx` | "Kata issues" thread panel (scoped `KataPanel`) |
 | `components/ui/popover.tsx` | Vendored from the `@bb` registry (desktop-v0.43.3) |
-| `lib/*.test.ts` | `node --test` units: keymap, tree, optimistic, labels, issue-detail, issue-store, workspace, cli-core, cli, refs, reorder, split, kata-client |
+| `lib/*.test.ts` | `node --test` units: keymap, tree, optimistic, labels, issue-detail, issue-store, workspace, cli-core, cli, refs, reorder, split, kata-client, groups |
 | `lib/cli-core.ts` | Pure: refs, project precedence, list/create/close request bodies, evidence, formatting, byte bounding |
 | `lib/kata-service.ts` | Operations shared by CLI and tools (resolution, daemon calls, thread link, viewer tabs) |
 | `lib/cli.ts` | `defineCli` spec for `bb kata` |
@@ -858,6 +971,9 @@ enter).
 | `skills/kata/SKILL.md` | Agent-facing conventions and command reference |
 | `lib/refs.ts` | Pure: ref parsing, `::kata-issue` attribute validation, ref extraction from text, panel-param targets, directive text |
 | `lib/reorder.ts` | Pure tab-order moves (drag slot, keyboard shift), shared by the strip and the picker |
+| `lib/groups.ts` | Pure, zod-free project groups: types, normalize, migration, the edits the strip and the picker make, the tab a group switch lands on, and group lookup by name for the CLI |
+| `lib/groups-schema.ts` | The `projectGroups` zod schema, parse and validate (server and RPC contract only) |
+| `components/group-chips.tsx` | Group chips, shared by the strip's segment and the picker's header |
 | `lib/split.ts` | Pure list/detail split maths: clamping to the pane minima, pointer → fraction, stored-value guard |
 | `lib/issue-open.ts` | Open an issue (thread panel params → nav fallback), the React bridge, palette dialog store |
 | `hooks/useResolvedIssue.ts` | Shared `issues.resolve` cache with realtime invalidation |
