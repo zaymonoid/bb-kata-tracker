@@ -458,6 +458,7 @@ export default async function plugin(bb: BbPluginApi) {
     "issues.resolve": ({ refs, projectId, threadId }) => resolveIssue(refs, { projectId, threadId }),
 
     "binding.forProject": async ({ projectId }) => bindingOut(await bindings.forProject(projectId)),
+    "binding.forKataProject": async ({ projectUid }) => ({ projects: await service.boundBy(projectUid) }),
     "binding.forThread": ({ threadId }) => threadBinding(threadId),
     "thread.linkIssue": async ({ threadId, projectUid, ref }) => {
       await service.link(threadId, { project: projectUid, usage: "thread.linkIssue" }, ref);

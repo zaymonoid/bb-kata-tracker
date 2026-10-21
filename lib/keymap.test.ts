@@ -252,6 +252,14 @@ test("L links the selection to the thread", () => {
   assert.equal(handleKey(initialKeymapState, { key: "l" }, "list").command?.type, "label");
 });
 
+test("t starts a new thread for the selection, from either pane", () => {
+  assert.deepEqual(handleKey(initialKeymapState, { key: "t" }, "list").command, { type: "newThread" });
+  assert.deepEqual(handleKey(initialKeymapState, { key: "t" }, "detail").command, { type: "newThread" });
+  // Not while typing, and not with a modifier (cmd-t stays the host's).
+  assert.equal(handleKey(initialKeymapState, { key: "t" }, "list", { typing: true }).handled, false);
+  assert.equal(handleKey(initialKeymapState, { key: "t", metaKey: true }, "list").handled, false);
+});
+
 test("help groups follow navigate / tabs / picker / create & edit / view", () => {
   assert.deepEqual(
     BINDING_GROUPS.map((group) => group.title),

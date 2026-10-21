@@ -140,6 +140,14 @@ export const rpcContract = defineRpcContract({
     input: z.object({ projectId: bbId }).strict(),
     output: bindingSchema,
   },
+  /**
+   * The reverse: the bb projects bound to a kata project, in bb's project
+   * order (empty when none is). For starting a thread on one of its issues.
+   */
+  "binding.forKataProject": {
+    input: z.object({ projectUid }).strict(),
+    output: z.object({ projects: z.array(z.object({ id: z.string(), name: z.string() })) }),
+  },
   /** The thread's project binding plus its linked issue, if any. */
   "binding.forThread": {
     input: z.object({ threadId: bbId }).strict(),

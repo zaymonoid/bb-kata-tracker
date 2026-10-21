@@ -34,6 +34,7 @@ export type KeyCommand =
   | { type: "cycleStatus" }
   | { type: "copyRef" }
   | { type: "linkThread" }
+  | { type: "newThread" }
   | { type: "search" }
   | { type: "toggleView" }
   | { type: "toggleSort" }
@@ -204,6 +205,8 @@ export function handleKey(
       return idle({ type: "copyRef" });
     case "L":
       return idle({ type: "linkThread" });
+    case "t":
+      return idle({ type: "newThread" });
     case "/":
       return idle({ type: "search" });
     case "v":
@@ -386,6 +389,7 @@ export const BINDING_GROUPS: readonly BindingGroup[] = [
       { keys: ["X"], label: "close as done" },
       { keys: ["r"], label: "reopen" },
       { keys: ["L"], label: "link to thread" },
+      { keys: ["t"], label: "new thread for issue" },
     ],
   },
   {

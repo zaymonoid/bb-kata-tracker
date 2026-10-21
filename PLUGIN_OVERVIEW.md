@@ -1,4 +1,4 @@
-# Kata plugin — overview (T1–T11)
+# Kata plugin — overview (T1–T12)
 
 User-facing docs (install, keymap, CLI, tools, settings): [README.md](README.md).
 
@@ -43,7 +43,8 @@ list on the left, detail on the right, kept live from kata's event log.
 - **Keyboard** (while the panel has focus): `j`/`k`/arrows, `g g`/`G`,
   `Home`/`End`, `PgUp`/`PgDn`, `Enter` (detail) / `Esc` (list, or clear the
   filter), `[`/`]` (tabs, within the active group), `alt-[`/`alt-]` (move the tab),
-  `⌘[`/`⌘]` (switch group), `?` (help). Editing keys are listed under T2 below.
+  `⌘[`/`⌘]` (switch group), `t` (new thread for the issue, T12), `?` (help).
+  Editing keys are listed under T2 below.
 - **Palette command** "Kata: open issue viewer", default ⌘⇧K.
 - **Settings**: `projectGroups` (JSON `{groups: [{id, name, projectUids}],
   activeGroupId}`; groups are overlays, so a project may be in several or
@@ -55,7 +56,7 @@ list on the left, detail on the right, kept live from kata's event log.
   writes it whenever they change, and a direct edit replaces them) and `actor` (empty = `$KATA_AUTHOR`/`$USER`;
   recorded on every mutation).
 - **RPC**: `daemon.status` (T6), `projects.list`, `included.get/set` (the active group's projects),
-  `groups.get/set`, `issues.list`
+  `groups.get/set`, `binding.forKataProject` (T12), `issues.list`
   (`open` from the warm cache, `closed`/`all` straight from the daemon),
   `issues.get`, `labels.list`, and the T2 mutations below.
 - **Live updates**: the `event-tail` service polls `GET /api/v1/events` about
@@ -934,6 +935,111 @@ build`. Not checked live in bb this pass (no install or reload): the
 remembered tab on a real group switch, the overlay's column balance with the
 picker group, and `bb kata group use` against a running plugin.
 
+## T12: `t` starts a thread on the selected issue
+
+`t` (`{type:"newThread"}`, "Create & edit" in the help) opens bb's new-thread
+screen with a one-line draft naming the selected issue. It **never sends**:
+there is no `experimental_submit` anywhere; the user edits the draft and
+presses enter. It is not in `MUTATING` (kata does not change), so it works
+while the daemon is down as long as the list is shown.
+
+**The draft rule** (`lib/new-thread.ts`): a new-thread draft that is blank
+(`isBlankDraft`: empty or whitespace-only) becomes the issue line, and the
+composer's project becomes the bound bb project. A non-blank draft gets the
+line appended as a new paragraph (`mergeDraft`: the draft with trailing
+whitespace trimmed, a blank line, the line) and its selected project is left
+alone. Nothing in the draft is ever replaced or lost.
+
+- **Reverse binding** (RPC `binding.forKataProject({projectUid})` →
+  `{projects: [{id, name}]}`, in `bb.sdk.projects.list()` order). The
+  frontend only knows kata projects, and the resolver maps bb project → kata
+  project, so `lib/kata-service.ts` `boundByKataProject` resolves every bb
+  project with `Promise.allSettled` and groups them by kata uid (unreadable
+  bindings are skipped). `projects()` (`bb kata projects`'s `bound:`) and the
+  new `boundBy(projectUid)` share it. Each `forProject` is the resolver's
+  60 s cache, so the call is cheap after the startup warm-up.
+- **The command** (`components/kata-panel.tsx` `startThread`): `needIssue()`,
+  placeholders get "Still saving…". No bound project → the error flash `No
+  bb project bound to <kata project>`, and nothing moves (also in the
+  non-blank case, so the rule does not depend on the draft). Several → the
+  first (`pickBoundProject`); its note goes in the toast. The line is
+  `newThreadDraft`: ``Work on kata issue <qualified_id>: "<title>". Run `bb
+  kata show <qualified_id>` for full details.`` The title is in plain quotes
+  (not JSON-quoted, so inner `"` show without backslashes), with whitespace
+  runs, newlines included, collapsed to one space so it stays one line.
+  Toasts are terse labels (the panel unmounts on the navigation, so a flash
+  would not be seen): blank → `New thread · <bb project>` plus ` · also
+  bound: X, Y` when there was a choice; non-blank → `Added to draft`; no
+  composer after 3 s → `New-thread composer unreachable`; an RPC failure is
+  the flash `New thread failed: <error>`.
+- **Kata page**: the panel's `useComposer()` has scope `new-thread` there, so
+  the decision is made before navigating: `isBlankDraft(composer.text)`, then
+  `composer.updateText((t) => mergeDraft(t, line))` and
+  `experimental_useSidebarThreadActions().openNewThread({projectId,
+  focusPrompt: true})` when blank, `openNewThread({focusPrompt: true})` (no
+  project, so the remembered one stays) when not. The new-thread draft is one
+  global draft (its scope reports `projectId: null` off the compose screen),
+  so it survives the navigation and the project switch.
+- **Thread panel**: its `useComposer()` is the host thread's draft (scope
+  `thread`), so it is not touched, and the new-thread draft cannot be read
+  from here. `openNewThread({focusPrompt: true})` without a project first;
+  then `newThreadComposer()` (`lib/issue-open.ts`) waits up to 3 s for the
+  always-mounted overlay's composer (the `Bridge` in `app.tsx`) to report
+  scope `new-thread` (it follows the route). Its `text` decides:
+  `updateText(mergeDraft)` either way; non-blank → `focus()`, done; blank →
+  `openNewThread({projectId, focusPrompt: true})` a second time, which sets
+  the project exactly as on the Kata page. The branch is chosen by
+  `composer.scope.kind`, not by `scope`.
+- **Rejected alternatives.** `PluginComposerApi.experimental_setSelection({
+  projectId})` on the overlay's composer, the first choice for the thread
+  panel's blank case, rejects live with "This composer has no pickers to
+  set.": the overlay is a plugin surface outside any composer, even when its
+  composer's scope is `new-thread` (the SDK lists that as a rejection case).
+  The draft had already been written, so the failure was only the project.
+  Before that, `useBbNavigate().toCompose({initialPrompt})` was rejected
+  because it only seeds an *empty* draft.
+
+### Verified live (2026-10-21, headless Chromium 1400×900, after the append rule)
+
+`npm run typecheck`, `npm test` (167 pass; `lib/new-thread.test.ts` now
+covers the plain-quoted title, whitespace collapsing, `isBlankDraft` and
+`mergeDraft`), `npm run build`, `bb plugin reload kata`. Two temporary bb
+projects (`kata-t-test-A`, `-B`) on temp directories whose `.kata.toml` named
+`bb-plugin-kata-scratch`, and a scratch issue `#k51a` titled `Append test: the
+"grip" quote`. Before each case the new-thread picker was set to B by hand,
+so a switch to A is visible. The scratch issue was opened with the palette's
+"Kata: open issue…" (a visiting tab on the Kata page; the side panel in this
+repo's own unbound thread).
+
+| Surface | Draft before | After `t` | Picker | Toast |
+| --- | --- | --- | --- | --- |
+| Kata page | empty | the line | B → A | `New thread · kata-t-test-A · also bound: kata-t-test-B` |
+| Kata page | `MY DRAFT line one` / `second line` | both lines kept, then a blank line and the line | B (kept) | `Added to draft` |
+| Thread panel | whitespace only (`"   \n\n  "`) | the line (treated as blank) | B → A | `New thread · kata-t-test-A · also bound: kata-t-test-B` |
+| Thread panel | `KEEP ME` | `KEEP ME`, a blank line, the line | B (kept) | `Added to draft` |
+
+In every case the page ended on `/` with the caret in the composer, and the
+title showed `"Append test: the "grip" quote"` without backslashes. The host
+thread's own draft stayed empty. The `ops` tab (no bound bb project) showed
+the footer `No bb project bound to ops` and stayed on the Kata page. No thread
+was created in either test project (`bb thread list --project`), and the
+console had no errors. Afterwards the new-thread draft was cleared, the picker
+set back to "No project" (as found), both test projects deleted, the temp
+directories removed and `#k51a` closed.
+
+### Not verified live
+
+- The 3 s fallback toast (`New-thread composer unreachable`) and the `New
+  thread failed` flash.
+- Exact paragraph structure: the composer was read through the editor's
+  `innerText`, not its plain `text`. The two-line draft read
+  `line one\n\nsecond line` before `t` and `line one\nsecond line\n\n<line>`
+  after; the text was all there, but whether the editor re-rendered the
+  existing line break differently was not probed.
+- A bb project bound only through a thread's environment: the reverse lookup
+  uses project bindings only, so such a project is not found.
+- The "Still saving…" refusal (same code as `y` / `b`).
+
 ## File map
 
 | Path | Role |
@@ -964,7 +1070,7 @@ picker group, and `bb kata group use` against a running plugin.
 | `components/thread-header.tsx` | Thread header control, popover, link typeahead |
 | `components/thread-issues-panel.tsx` | "Kata issues" thread panel (scoped `KataPanel`) |
 | `components/ui/popover.tsx` | Vendored from the `@bb` registry (desktop-v0.43.3) |
-| `lib/*.test.ts` | `node --test` units: keymap, tree, optimistic, labels, issue-detail, issue-store, workspace, cli-core, cli, refs, reorder, split, kata-client, groups |
+| `lib/*.test.ts` | `node --test` units: keymap, tree, optimistic, labels, issue-detail, issue-store, workspace, cli-core, cli, refs, reorder, split, kata-client, groups, new-thread |
 | `lib/cli-core.ts` | Pure: refs, project precedence, list/create/close request bodies, evidence, formatting, byte bounding |
 | `lib/kata-service.ts` | Operations shared by CLI and tools (resolution, daemon calls, thread link, viewer tabs) |
 | `lib/cli.ts` | `defineCli` spec for `bb kata` |
@@ -976,7 +1082,8 @@ picker group, and `bb kata group use` against a running plugin.
 | `lib/groups-schema.ts` | The `projectGroups` zod schema, parse and validate (server and RPC contract only) |
 | `components/group-chips.tsx` | Group chips, shared by the strip's segment and the picker's header |
 | `lib/split.ts` | Pure list/detail split maths: clamping to the pane minima, pointer → fraction, stored-value guard |
-| `lib/issue-open.ts` | Open an issue (thread panel params → nav fallback), the React bridge, palette dialog store |
+| `lib/issue-open.ts` | Open an issue (thread panel params → nav fallback), the React bridge (navigator, RPC, composer; `newThreadComposer`), palette dialog store |
+| `lib/new-thread.ts` | Pure: the `t` draft text and which bound bb project it goes to |
 | `hooks/useResolvedIssue.ts` | Shared `issues.resolve` cache with realtime invalidation |
 | `components/issue-chip.tsx` | `::kata-issue` directive chip and its context menu |
 | `components/command-dialogs.tsx` | Palette "open issue…" / "link issue" dialogs (app overlay) |
@@ -1037,6 +1144,9 @@ bb plugin logs kata
   tabs by params). That is deliberate, but the tabs can pile up.
 - `bb plugin list` counts handler errors, including the RPC 500s from the
   daemon-down test, so the count is above T5's 3.
+- T12: `t` on a blank new-thread draft makes the bound bb project bb's
+  remembered new-thread project. On a non-blank draft it only appends, so the
+  thread may go to whichever project the picker already showed.
 - A thread panel opened by the host without a deliberate action (for example,
   restored on reload) does not take focus. Click it, or use the footer
   button.

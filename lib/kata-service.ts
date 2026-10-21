@@ -21,6 +21,11 @@ import type { KataClient } from "./kata-client.ts";
 import type { KataEditIssueBody, KataIssue, KataIssueDetail, KataProject } from "./kata-types.ts";
 import { readThreadLink, type Binding, type ThreadLink } from "./workspace.ts";
 
+export interface BbProject {
+  id: string;
+  name: string;
+}
+
 /** Where a call comes from: `--project`, plus the invoking thread / bb project. */
 export interface Scope {
   project?: string | undefined;
@@ -38,7 +43,7 @@ export interface KataServiceDeps {
     forProject(projectId: string): Promise<Binding>;
   };
   actor(): Promise<string>;
-  bbProjects(): Promise<{ id: string; name: string }[]>;
+  bbProjects(): Promise<BbProject[]>;
   /** The active group's projects (the viewer's tabs). */
   included: { get(): string[]; set(uids: string[]): Promise<string[]> };
   groups: { get(): ProjectGroups; set(next: ProjectGroups): Promise<ProjectGroups> };
@@ -94,6 +99,22 @@ export function createKataService(deps: KataServiceDeps) {
     return { project: resolved.project, ref: parsed.ref };
   }
 
+  /**
+   * The reverse of the binding resolver: kata project uid → the bb projects
+   * whose `.kata.toml` names it. A project whose binding cannot be read is
+   * left out.
+   */
+  async function boundByKataProject(bbProjects: BbProject[]): Promise<Map<string, BbProject[]>> {
+    const bindings = await Promise.allSettled(bbProjects.map((bp) => deps.bindings.forProject(bp.id)));
+    const bound = new Map<string, BbProject[]>();
+    bbProjects.forEach((bp, i) => {
+      const r = bindings[i]!;
+      const uid = r.status === "fulfilled" ? r.value.kataProject?.uid : undefined;
+      if (uid) bound.set(uid, [...(bound.get(uid) ?? []), { id: bp.id, name: bp.name }]);
+    });
+    return bound;
+  }
+
   async function detail(p: KataProject, ref: string): Promise<KataIssueDetail> {
     return toIssueDetail(await client.getIssue(p.id, ref), p.name);
   }
@@ -112,21 +133,21 @@ export function createKataService(deps: KataServiceDeps) {
     async projects() {
       const [projects, bbProjects] = await Promise.all([deps.projects(), deps.bbProjects().catch(() => [])]);
       const included = deps.included.get();
-      const bindings = await Promise.allSettled(bbProjects.map((bp) => deps.bindings.forProject(bp.id)));
+      const bound = await boundByKataProject(bbProjects);
       const group = activeGroup(deps.groups.get());
       const rows = projects.map((p) => ({
         id: p.id,
         uid: p.uid,
         name: p.name,
         included: included.includes(p.uid),
-        boundBy: bbProjects
-          .filter((_, i) => {
-            const r = bindings[i]!;
-            return r.status === "fulfilled" && r.value.kataProject?.uid === p.uid;
-          })
-          .map((bp) => ({ id: bp.id, name: bp.name })),
+        boundBy: bound.get(p.uid) ?? [],
       }));
       return { group: group && { id: group.id, name: group.name }, projects: rows };
+    },
+
+    /** The bb projects bound to one kata project, in bb's project order. */
+    async boundBy(projectUid: string) {
+      return (await boundByKataProject(await deps.bbProjects())).get(projectUid) ?? [];
     },
 
     async list(scope: Scope, options: ListOptions) {

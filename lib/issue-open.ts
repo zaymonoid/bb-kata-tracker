@@ -6,7 +6,12 @@
 // Palette commands and message actions run outside React, so an always-
 // mounted overlay (app.tsx) lends them the app's navigator and RPC client
 // through `bridge`.
-import type { BbNavigate, PluginRpcClient, PluginTargetedPanelActionOpenOptions } from "@get-bb/plugin-sdk/app";
+import type {
+  BbNavigate,
+  PluginComposerApi,
+  PluginRpcClient,
+  PluginTargetedPanelActionOpenOptions,
+} from "@get-bb/plugin-sdk/app";
 import type { IssueSummary, KataRpcContract } from "./rpc-contract";
 import type { IssueTarget } from "./refs";
 import { patch, requestNavIssue, requestPanelFocus, requestScopedOpen } from "./viewer-store";
@@ -17,7 +22,39 @@ export const ISSUES_ACTION_ID = "issues";
 export const bridge: {
   navigate: BbNavigate | null;
   rpc: PluginRpcClient<KataRpcContract> | null;
-} = { navigate: null, rpc: null };
+  /** The overlay's composer. It follows the route: the new-thread draft on the new-thread screen. */
+  composer: PluginComposerApi | null;
+} = { navigate: null, rpc: null, composer: null };
+
+const composerListeners = new Set<() => void>();
+
+/** The overlay rendered (its composer may now point somewhere else). */
+export function setBridgeComposer(composer: PluginComposerApi | null) {
+  bridge.composer = composer;
+  composerListeners.forEach((listener) => listener());
+}
+
+/**
+ * The new-thread composer, once the app shows it. A thread panel's own
+ * composer is its thread's draft, so after `openNewThread` the draft is
+ * written through the overlay's. Null after `timeoutMs`.
+ */
+export function newThreadComposer(timeoutMs = 3000): Promise<PluginComposerApi | null> {
+  return new Promise((resolve) => {
+    const check = () => {
+      const composer = bridge.composer;
+      if (composer?.scope.kind === "new-thread") finish(composer);
+    };
+    const finish = (composer: PluginComposerApi | null) => {
+      clearTimeout(timer);
+      composerListeners.delete(check);
+      resolve(composer);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    composerListeners.add(check);
+    check();
+  });
+}
 
 export const targetOf = (issue: IssueSummary): IssueTarget => ({
   issueUid: issue.uid,

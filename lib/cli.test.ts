@@ -232,6 +232,35 @@ test("projects: [included] names the active group", async () => {
   assert.deepEqual(json.group, { id: "g1", name: "Work" });
 });
 
+test("boundBy: the bb projects bound to one kata project, in bb's order", async () => {
+  const bindingOf: Record<string, Binding["kataProject"]> = { proj_a: scratch, proj_b: grippify, proj_c: scratch };
+  const service = createKataService({
+    client: {} as KataClient,
+    projects: async () => [grippify, scratch],
+    bindings: {
+      forThread: async () => ({ binding: { kataProject: null, name: null, dir: null } }),
+      forProject: async (id) => {
+        if (id === "proj_d") throw new Error("host offline");
+        return { kataProject: bindingOf[id] ?? null, name: null, dir: null };
+      },
+    },
+    actor: async () => "tester",
+    bbProjects: async () => ["a", "b", "c", "d", "e"].map((x) => ({ id: `proj_${x}`, name: x.toUpperCase() })),
+    included: { get: () => [], set: async (u) => u },
+    groups: { get: () => ({ groups: [], activeGroupId: "" }), set: async (next) => next },
+    threadLink: { get: async () => ({}), set: async () => {}, remove: async () => {} },
+  });
+  assert.deepEqual(await service.boundBy(scratch.uid), [
+    { id: "proj_a", name: "A" },
+    { id: "proj_c", name: "C" },
+  ]);
+  assert.deepEqual(await service.boundBy(grippify.uid), [{ id: "proj_b", name: "B" }]);
+  assert.deepEqual(await service.boundBy("01NOTBOUND0000000000000000"), []);
+  // `projects` reads the same mapping.
+  const rows = (await service.projects()).projects;
+  assert.deepEqual(rows.find((p) => p.uid === scratch.uid)?.boundBy.map((b) => b.id), ["proj_a", "proj_c"]);
+});
+
 test("groups: * marks the active group, with project counts", async () => {
   const { run } = setup();
   const r = await run(["groups"]);

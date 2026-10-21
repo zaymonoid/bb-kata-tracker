@@ -77,6 +77,18 @@ The list takes keyboard focus.
   you open it on purpose: from an issue chip, the palette, or the header's
   *Open Kata issues*. It does not take focus when a thread just opens, so it
   never steals the composer.
+- **Start a thread on an issue.** `t` opens bb's new-thread screen with a
+  one-line draft: ``Work on kata issue project#abc4: "<title>". Run
+  `bb kata show project#abc4` for full details.`` If the new-thread draft
+  was blank (or only whitespace), that line becomes the draft and the project
+  becomes the bb project whose `.kata.toml` names the issue's kata project
+  (toast `New thread · <project>`). If it already had text, the line is
+  appended as a new paragraph and the selected project is left alone (toast
+  `Added to draft`). Nothing is replaced or sent: edit the draft and press
+  `enter`. With no bound bb project the footer says `No bb project bound to
+  <kata project>`; with several, the first one in bb's project order is used
+  and the toast adds `also bound: …`. Works from the Kata page and from a
+  thread's side panel.
 - `?` shows every binding.
 
 ### Keymap
@@ -111,6 +123,7 @@ The list takes keyboard focus.
 | | `X` | close as done, no dialog |
 | | `r` | reopen |
 | | `L` | link to thread (thread panel) |
+| | `t` | new thread for the issue (pre-filled, not sent; see above) |
 | View | `s` | cycle open/all/closed |
 | | `/` | filter by title, label or short id (`enter` to keep, `esc` to clear) |
 | | `v` | nested/flat |
@@ -139,7 +152,7 @@ In a bound thread:
 - The **thread header** shows the kata project, or the linked issue and its
   priority. Its menu has *Open Kata issues*, *Link issue…* and *Unlink*.
 - The **"Kata issues" side panel** is the same viewer, pinned to that project.
-  `L` links the selected issue to the thread.
+  `L` links the selected issue to the thread; `t` starts a new thread on it.
 - The agent gets short instructions (project, ref format, the linked issue),
   the `kata_*` tools and the `kata` skill.
 - `::kata-issue{ref="project#abc4"}` on its own line in a message renders as a

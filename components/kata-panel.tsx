@@ -18,6 +18,8 @@ import {
 } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
+  experimental_useSidebarThreadActions,
+  useComposer,
   useRealtime,
   useRealtimeConnectionState,
   useRpc,
@@ -77,6 +79,8 @@ import {
   visitProject,
 } from "@/lib/viewer-store";
 import type { IssueTarget } from "@/lib/refs";
+import { isBlankDraft, mergeDraft, newThreadDraft, pickBoundProject } from "@/lib/new-thread";
+import { newThreadComposer } from "@/lib/issue-open";
 import { scopedOpenPane, SCOPED_OPEN_WINDOW_MS } from "@/lib/scoped-open";
 import {
   clampFraction,
@@ -187,6 +191,8 @@ function storedFraction(): number | null {
 
 export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}) {
   const rpc = useRpc<KataRpcContract>();
+  const composer = useComposer();
+  const threadActions = experimental_useSidebarThreadActions();
   const scopedUid = scope?.projectUid ?? null;
   const view = useSyncExternalStore(viewerStore.subscribe, viewerStore.get);
   const [pane, setPane] = useState<Pane>("list");
@@ -748,6 +754,56 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
     if (narrow) setPane("list");
   };
 
+  /**
+   * `t`: a draft naming the issue in bb's new-thread composer. A blank draft
+   * gets the line and the bb project bound to the issue's kata project; a
+   * non-blank one gets the line as a new paragraph and keeps its project.
+   * Never sends: the user finishes the message and presses enter.
+   */
+  const startThread = (issue: KataIssue, projectUid: string) => {
+    const kataName = view.projects?.find((p) => p.uid === projectUid)?.name ?? issue.qualified_id.split("#")[0];
+    rpc.call("binding.forKataProject", { projectUid }).then(
+      ({ projects }) => {
+        const pick = pickBoundProject(projects);
+        if (pick === null) {
+          return setFlash(`No bb project bound to ${kataName}`, "error");
+        }
+        const line = newThreadDraft(issue);
+        const projectId = pick.project.id;
+        const toastNew = () => toast(`New thread · ${pick.project.name}${pick.note ? ` · ${pick.note}` : ""}`);
+        const toastAdded = () => toast("Added to draft");
+        if (composer.scope.kind === "new-thread") {
+          // Kata page: this composer is the new-thread draft, so the project
+          // is decided before the navigation.
+          const blank = isBlankDraft(composer.text);
+          composer.updateText((current) => mergeDraft(current, line));
+          threadActions.openNewThread(blank ? { projectId, focusPrompt: true } : { focusPrompt: true });
+          return blank ? toastNew() : toastAdded();
+        }
+        // Thread panel: this composer is the host thread's draft, and the
+        // new-thread draft cannot be read from here. Open the screen on its
+        // current project, then read and write the draft through the
+        // overlay's composer, which follows the route. A blank draft then
+        // opens the screen again with the project: the overlay is outside any
+        // composer, so its `experimental_setSelection` rejects.
+        // (`toCompose({initialPrompt})` only seeds an empty draft.)
+        threadActions.openNewThread({ focusPrompt: true });
+        void newThreadComposer().then((target) => {
+          if (target === null) return void toast.error("New-thread composer unreachable");
+          const blank = isBlankDraft(target.text);
+          target.updateText((current) => mergeDraft(current, line));
+          if (!blank) {
+            target.focus();
+            return void toastAdded();
+          }
+          threadActions.openNewThread({ projectId, focusPrompt: true });
+          toastNew();
+        });
+      },
+      (error: unknown) => flashError("New thread failed", error),
+    );
+  };
+
   const needIssue = (): KataIssue | null => {
     if (selectedIssue === null) setFlash("No issue selected");
     return selectedIssue;
@@ -938,6 +994,12 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
         if (issue.uid === linkedUid) return setFlash(`${issue.qualified_id} is already linked`);
         scope.onLink(issue);
         return setFlash(`Linking ${issue.qualified_id}…`);
+      }
+      case "newThread": {
+        const issue = needIssue();
+        if (issue === null || activeUid === null) return;
+        if (isPlaceholder(issue.uid)) return setFlash("Still saving…");
+        return startThread(issue, activeUid);
       }
     }
   };

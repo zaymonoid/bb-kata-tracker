@@ -15,23 +15,34 @@
 // in assistant messages, so bare `project#abc4` mentions are reached through
 // the directive and the action.
 import { useEffect } from "react";
-import { definePluginApp, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
+import { definePluginApp, useBbNavigate, useComposer, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { KataPanel } from "@/components/kata-panel";
 import { KataThreadHeader } from "@/components/thread-header";
 import { ThreadIssuesPanel } from "@/components/thread-issues-panel";
 import { IssueChipDirective } from "@/components/issue-chip";
 import { CommandDialogs } from "@/components/command-dialogs";
-import { bridge, commandDialogStore, ISSUES_ACTION_ID, openIssue, PANEL_PATH, targetOf } from "@/lib/issue-open";
+import {
+  bridge,
+  commandDialogStore,
+  ISSUES_ACTION_ID,
+  openIssue,
+  PANEL_PATH,
+  setBridgeComposer,
+  targetOf,
+} from "@/lib/issue-open";
 import { extractRefs } from "@/lib/refs";
 import type { KataRpcContract } from "@/lib/rpc-contract";
 import { requestPanelFocus } from "@/lib/viewer-store";
 
 // Palette commands and message actions run outside React: an always-mounted,
-// invisible overlay lends them the app's navigator and RPC client.
+// invisible overlay lends them the app's navigator and RPC client. Its
+// composer follows the route, so `t` in a thread panel writes the new-thread
+// draft through it once the new-thread screen is up.
 function Bridge() {
   const nav = useBbNavigate();
   const rpc = useRpc<KataRpcContract>();
+  const composer = useComposer();
   useEffect(() => {
     bridge.navigate = nav;
     bridge.rpc = rpc;
@@ -40,6 +51,9 @@ function Bridge() {
       if (bridge.rpc === rpc) bridge.rpc = null;
     };
   }, [nav, rpc]);
+  // Every render: the composer's scope follows the route.
+  useEffect(() => setBridgeComposer(composer));
+  useEffect(() => () => setBridgeComposer(null), []);
   return null;
 }
 
