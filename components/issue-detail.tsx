@@ -65,6 +65,7 @@ function PeerList({
 }
 
 export interface IssueDetailProps {
+  compact?: boolean;
   issue: KataIssue | null;
   detail: KataIssueDetail | null;
   detailError: string | null;
@@ -76,7 +77,7 @@ export interface IssueDetailProps {
 }
 
 export const IssueDetail = forwardRef<HTMLDivElement, IssueDetailProps>(function IssueDetail(
-  { issue: listIssue, detail, detailError, pendingComments, onFocus, titleOf, onOpenPeer },
+  { compact = false, issue: listIssue, detail, detailError, pendingComments, onFocus, titleOf, onOpenPeer },
   ref,
 ) {
   // Prefer the list copy for fields both have (it is refreshed by events) and
@@ -101,23 +102,29 @@ export const IssueDetail = forwardRef<HTMLDivElement, IssueDetailProps>(function
       {issue === null ? (
         <p className="p-6 text-sm text-muted-foreground">No issue selected.</p>
       ) : (
-        <article className="mx-auto max-w-3xl px-5 py-4">
+        <article className={cn("mx-auto max-w-3xl px-5", compact ? "pb-6 pt-1" : "py-4")}>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <StatusGlyph status={issue.status} blocked={issue.blocked} />
-            <span className="font-mono">{issue.qualified_id}</span>
+            <span className="font-mono">{compact ? issue.short_id : issue.qualified_id}</span>
             <span>·</span>
             <span>{issue.status}</span>
             {issue.closed_reason ? <span>({issue.closed_reason})</span> : null}
             <PriorityChip priority={issue.priority} />
-            {issue.owner ? <span>owner @{issue.owner}</span> : <span>unowned</span>}
+            {issue.owner ? <span>@{issue.owner}</span> : !compact ? <span>unowned</span> : null}
           </div>
-          <h2 className="mt-2 text-lg font-semibold leading-snug text-foreground">
+          <h2 className={cn("font-semibold leading-snug text-foreground", compact ? "mt-2 text-xl tracking-tight" : "mt-2 text-lg")}>
             {issue.title}
           </h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            by {issue.author} · created {formatDate(issue.created_at)} · updated{" "}
-            {formatDate(issue.updated_at)}
-          </p>
+          {compact ? (
+            <details className="mt-2 text-xs text-muted-foreground">
+              <summary className="cursor-pointer py-1">Updated {new Date(issue.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</summary>
+              <p className="pt-2">By {issue.author} · created {formatDate(issue.created_at)} · updated {formatDate(issue.updated_at)}</p>
+            </details>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">
+              by {issue.author} · created {formatDate(issue.created_at)} · updated {formatDate(issue.updated_at)}
+            </p>
+          )}
           {(issue.labels ?? []).length > 0 ? (
             <div className="mt-2 flex flex-wrap gap-1">
               {(issue.labels ?? []).map((label) => (
@@ -126,7 +133,7 @@ export const IssueDetail = forwardRef<HTMLDivElement, IssueDetailProps>(function
             </div>
           ) : null}
 
-          <div className="mt-4 text-sm">
+          <div className={cn("text-sm", compact ? "mt-4 leading-relaxed" : "mt-4")}>
             {issue.body.trim() === "" ? (
               <p className="italic text-muted-foreground">No description.</p>
             ) : (

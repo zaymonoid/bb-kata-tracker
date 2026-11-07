@@ -34,6 +34,11 @@ bb plugin install . --yes      # afterwards: bb plugin reload kata
 Open **Kata** in the sidebar, or press **⌘⇧K** (palette: "Kata: open issue viewer").
 The list takes keyboard focus.
 
+On a phone, tap an issue to open its detail. The bottom bar provides **Priority**,
+**Close/Reopen**, and **Start thread**; **More** opens comments and editing actions.
+The list has touch controls for filtering, status, and creating issues. Mobile
+editors include save/cancel buttons and use larger fields to avoid iOS focus zoom.
+
 - **Tabs.** The tabs are the active group's projects. No projects are shown
   until you choose some. `[` / `]` switch tabs and wrap within the group. Each
   tab keeps its own selection, filter and status view.

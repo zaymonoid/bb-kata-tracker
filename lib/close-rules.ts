@@ -23,6 +23,17 @@ export const CLOSE_RULES: Record<CloseReason, CloseRule> = {
   superseded: { label: "superseded by…", key: "s", minMessage: 20, target: "superseded-by" },
 };
 
+/** Message sent when the human leaves the box empty; long enough for every reason's minimum. */
+export function defaultCloseMessage(reason: CloseReason, targetRef: string): string {
+  const target = targetRef.trim();
+  const lead =
+    reason === "superseded" ? `Superseded by ${target}`
+    : reason === "duplicate" ? `Duplicate of ${target}`
+    : reason === "wontfix" ? "Closed as wontfix"
+    : "Done";
+  return `${lead} (closed from the tracker UI, no further notes).`;
+}
+
 /** Why the close cannot be sent yet, or null when it looks valid. */
 export function closeProblem(reason: CloseReason, message: string, targetRef: string): string | null {
   const rule = CLOSE_RULES[reason];

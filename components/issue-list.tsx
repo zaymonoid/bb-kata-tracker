@@ -46,13 +46,15 @@ const IssueRow = memo(function IssueRow({
         if (editor) return;
         // Keep focus on the list container rather than the row.
         event.preventDefault();
-        onSelect(issue.uid);
       }}
-      style={{ height: ROW_HEIGHT }}
+      onClick={() => {
+        if (!editor) onSelect(issue.uid);
+      }}
+      style={{ minHeight: ROW_HEIGHT }}
       className={cn(
         // mx-1 + px-2 keeps the old px-3 text position while the selection and
         // hover background stay clear of the pane border.
-        "mx-1 flex cursor-default items-center gap-2 rounded-md px-2 text-sm",
+        "mx-1 flex pointer-coarse:min-h-11 cursor-default items-center gap-2 rounded-md px-2 text-sm",
         selected
           ? focused
             ? "bg-accent text-accent-foreground"
@@ -74,9 +76,12 @@ const IssueRow = memo(function IssueRow({
           onMouseDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
             onToggle(issue.uid);
           }}
-          className="-mx-0.5 w-3 shrink-0 text-center font-mono text-[10px] text-muted-foreground hover:text-foreground"
+          className="-mx-0.5 w-3 pointer-coarse:min-h-11 pointer-coarse:min-w-8 shrink-0 text-center font-mono text-[10px] text-muted-foreground hover:text-foreground"
         >
           {row.expanded ? "▾" : "▸"}
         </button>

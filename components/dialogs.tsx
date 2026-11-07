@@ -3,8 +3,9 @@
 // the panel.
 import { useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
-import { CLOSE_REASONS, CLOSE_RULES, closeProblem, type CloseReason } from "@/lib/close-rules";
+import { CLOSE_REASONS, CLOSE_RULES, closeProblem, defaultCloseMessage, type CloseReason } from "@/lib/close-rules";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/issue-bits";
 import { FieldHint, LineInput, Textarea, fieldKeyDown, useDiscardGuard } from "@/components/fields";
 
@@ -26,7 +27,7 @@ function Overlay({
       onMouseDown={onDismiss}
       aria-modal="true"
       className={cn(
-        "absolute inset-0 z-20 flex items-start justify-center bg-background/60 p-4 backdrop-blur-[1px]",
+        "absolute inset-0 z-20 flex items-start justify-center overflow-y-auto bg-background/60 p-4 backdrop-blur-[1px]",
         wide ? "pt-8" : "pt-16",
       )}
     >
@@ -36,6 +37,21 @@ function Overlay({
       >
         {children}
       </div>
+    </div>
+  );
+}
+
+function TouchActions({ label, armed, disabled = false, onSubmit, onCancel }: {
+  label: string;
+  armed: boolean;
+  disabled?: boolean;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="mt-4 flex justify-end gap-2 pointer-fine:hidden">
+      <Button type="button" variant="ghost" className="h-11 rounded-xl" onClick={onCancel}>{armed ? "Discard changes" : "Cancel"}</Button>
+      <Button type="button" className="h-11 rounded-xl" disabled={disabled} onClick={onSubmit}>{label}</Button>
     </div>
   );
 }
@@ -66,7 +82,12 @@ export function CloseDialog({
   const targetRef = useRef<HTMLInputElement | null>(null);
   const messageRef = useRef<HTMLTextAreaElement | null>(null);
   const guard = useDiscardGuard(onCancel);
-  const problem = closeProblem(values.reason, values.message, values.targetRef);
+  // An empty box falls back to a templated message rather than blocking the close.
+  const effective =
+    values.message.trim() === ""
+      ? { ...values, message: defaultCloseMessage(values.reason, values.targetRef) }
+      : values;
+  const problem = closeProblem(effective.reason, effective.message, effective.targetRef);
   const rule = CLOSE_RULES[values.reason];
 
   useLayoutEffect(() => {
@@ -79,7 +100,7 @@ export function CloseDialog({
       (rule.target !== null && values.targetRef.trim() === "" ? targetRef.current : messageRef.current)?.focus();
       return;
     }
-    onSubmit(values);
+    onSubmit(effective);
   };
   const cancel = () => guard.cancel(values.message.trim() !== "" || values.targetRef.trim() !== "");
   const pick = (reason: CloseReason) => {
@@ -174,7 +195,7 @@ export function CloseDialog({
         ref={messageRef}
         aria-label="Close message"
         className="mt-2 min-h-20"
-        placeholder={rule.minMessage > 0 ? `Why (${rule.minMessage}+ characters)…` : "Message (optional)…"}
+        placeholder={rule.minMessage > 0 ? defaultCloseMessage(values.reason, values.targetRef) : "Message (optional)…"}
         value={values.message}
         onChange={(event) => {
           guard.disarm();
@@ -193,6 +214,7 @@ export function CloseDialog({
           </FieldHint>
         )}
       </div>
+      <TouchActions label="Close issue" armed={guard.armed} disabled={problem !== null} onSubmit={submit} onCancel={cancel} />
     </Overlay>
   );
 }
@@ -241,6 +263,7 @@ export function CommentDialog({
           {guard.armed ? "esc again to discard" : "ctrl-o or ⌘enter to post · esc to cancel"}
         </FieldHint>
       </div>
+      <TouchActions label="Post comment" armed={guard.armed} disabled={body.trim() === ""} onSubmit={submit} onCancel={cancel} />
     </Overlay>
   );
 }
@@ -297,6 +320,7 @@ export function BodyDialog({
             : `ctrl-o or ⌘enter to save${changed ? "" : " (nothing changed yet)"} · esc to cancel`}
         </FieldHint>
       </div>
+      <TouchActions label="Save changes" armed={guard.armed} disabled={!changed} onSubmit={submit} onCancel={cancel} />
     </Overlay>
   );
 }

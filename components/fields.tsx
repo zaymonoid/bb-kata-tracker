@@ -43,7 +43,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
       <textarea
         ref={ref}
         className={cn(
-          "block w-full resize-y rounded-md border border-input bg-transparent px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          "block w-full resize-y rounded-md border border-input bg-transparent px-2 py-1.5 text-sm pointer-coarse:text-[16px] text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
           className,
         )}
         {...props}
@@ -61,7 +61,7 @@ export const LineInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLIn
         autoComplete="off"
         spellCheck={false}
         className={cn(
-          "h-6 min-w-0 flex-1 rounded border border-input bg-background px-1.5 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          "h-6 min-w-0 flex-1 rounded border border-input bg-background px-1.5 text-sm pointer-coarse:text-[16px] text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
           className,
         )}
         {...props}

@@ -92,6 +92,8 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { EmptyState, Kbd } from "@/components/issue-bits";
 import { HelpOverlay } from "@/components/help-overlay";
+import { Icon } from "@/components/ui/icon";
+import { MobileCommandBar } from "@/components/mobile-command-bar";
 import { IssueDetail } from "@/components/issue-detail";
 import { IssueList, ROW_HEIGHT } from "@/components/issue-list";
 import { BodyDialog, CloseDialog, CommentDialog, type CloseValues } from "@/components/dialogs";
@@ -1334,19 +1336,18 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
         ) : null}
         <div className={cn("min-h-0 min-w-0 flex-1 flex-col", narrow && pane !== "detail" ? "hidden" : "flex")}>
           {narrow ? (
-            <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-2 text-xs text-muted-foreground">
+            <div className="flex min-h-12 shrink-0 items-center gap-3 px-3 text-sm text-muted-foreground">
               <button
                 type="button"
-                tabIndex={-1}
                 aria-label="Back to the issue list"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={focusList}
-                className="rounded px-1.5 py-0.5 hover:bg-muted hover:text-foreground"
+                className="flex min-h-11 shrink-0 items-center gap-1 rounded-lg pr-3 text-foreground hover:bg-muted"
               >
-                ← Issues
+                <Icon name="ChevronLeft" className="size-4" /> Issues
               </button>
-              <span>
-                <Kbd>esc</Kbd> back
+              <span className="min-w-0 flex-1 truncate text-right text-xs">
+                {view.projects?.find((project) => project.uid === activeUid)?.name}
               </span>
             </div>
           ) : null}
@@ -1354,6 +1355,7 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
           <IssueDetail
             ref={detailRef}
             issue={selectedIssue}
+            compact={narrow}
             detail={detail}
             detailError={detailError}
             pendingComments={shownComments}
@@ -1398,7 +1400,7 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
         dragging && "cursor-col-resize select-none",
       )}
     >
-      {scopedUid === null ? (
+      {scopedUid === null && !(narrow && pane === "detail") ? (
         <ProjectTabs
           included={tabs}
           visiting={visiting}
@@ -1437,7 +1439,17 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
         </div>
       )}
       <div className="flex min-h-0 flex-1 flex-col">{body}</div>
-      <div className="flex h-7 shrink-0 items-center gap-3 border-t border-border px-3 text-xs text-muted-foreground">
+      {narrow && activeUid && ready && draft === null && editingUid === null && labelFor === null ? (
+        <MobileCommandBar
+          key={`${activeUid}:${pane}:${selectedUid}`}
+          issue={pane === "detail" ? selectedIssue : null}
+          editable={view.daemon.available && (pane !== "detail" || (selectedUid !== null && !isPlaceholder(selectedUid)))}
+          scoped={scope !== undefined}
+          statusView={statusView}
+          onCommand={(command) => run(command, pane)}
+        />
+      ) : null}
+      <div className={cn("flex h-7 shrink-0 items-center gap-3 border-t border-border px-3 text-xs text-muted-foreground", narrow && !hint && !list?.error && "hidden")}>
         <span
           className={cn("min-w-0 flex-1 truncate", hint?.tone === "error" && "text-destructive")}
           role={hint?.tone === "error" ? "alert" : undefined}
@@ -1460,7 +1472,7 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
           </span>
         ) : null}
         {list?.error && list.issues ? <span className="shrink-0 text-destructive">refresh failed</span> : null}
-        {hasFocus ? (
+        {narrow ? null : hasFocus ? (
           <span className="shrink-0">
             <Kbd>?</Kbd> help
           </span>

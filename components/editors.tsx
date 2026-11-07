@@ -4,6 +4,8 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { parseLabelInput } from "@/lib/labels";
 import { cn } from "@/lib/utils";
+import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
+import { Button } from "@/components/ui/button";
 import { ROW_HEIGHT } from "@/components/issue-list";
 import { FieldHint, LineInput, Textarea, fieldKeyDown, useDiscardGuard } from "@/components/fields";
 
@@ -31,6 +33,7 @@ export function DraftRow({
   onSave: (draft: Draft) => void;
   onCancel: () => void;
 }) {
+  const compact = useIsCompactViewport();
   const titleRef = useRef<HTMLInputElement | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
   const guard = useDiscardGuard(onCancel);
@@ -61,13 +64,16 @@ export function DraftRow({
   return (
     <div
       data-draft-row
-      className="border-y border-primary/40 bg-primary/5 px-3 py-1"
-      style={{ paddingLeft: 12 + depth * 18 }}
+      className={cn(compact ? "m-3 space-y-3 rounded-xl border border-border bg-card p-4" : "border-y border-primary/40 bg-primary/5 px-3 py-1")}
+      style={compact ? undefined : { paddingLeft: 12 + depth * 18 }}
     >
-      <div className="flex items-center gap-2" style={{ minHeight: ROW_HEIGHT - 8 }}>
-        <span className="w-3 shrink-0 text-center font-mono text-xs text-primary">+</span>
+      {compact ? <h2 className="text-sm font-semibold">{parentLabel ? `New sub-issue of ${parentLabel}` : "New issue"}</h2> : null}
+      <div className="flex min-w-0 items-center gap-2" style={{ minHeight: ROW_HEIGHT - 8 }}>
+        {!compact ? <span className="w-3 shrink-0 text-center font-mono text-xs text-primary">+</span> : null}
         <LineInput
           ref={titleRef}
+          className={compact ? "h-11 w-full rounded-lg px-3 text-[16px]" : undefined}
+          enterKeyHint="done"
           aria-label={parentLabel ? `New child of ${parentLabel}` : "New issue title"}
           placeholder={parentLabel ? `New child of ${parentLabel}…` : "New issue title…"}
           value={draft.title}
@@ -89,8 +95,8 @@ export function DraftRow({
         <Textarea
           ref={bodyRef}
           aria-label="New issue body"
-          className="mt-1 min-h-20"
-          placeholder="Body (markdown)…"
+          className={compact ? "min-h-24 rounded-lg p-3 text-[16px]" : "mt-1 min-h-20"}
+          placeholder={compact ? "Description (optional)…" : "Body (markdown)…"}
           value={draft.body}
           onChange={(event) => {
             guard.disarm();
@@ -99,18 +105,23 @@ export function DraftRow({
           onKeyDown={(event) => fieldKeyDown(event, "multiline", { submit: save, cancel })}
         />
       ) : null}
+      {compact && !draft.showBody ? <button type="button" className="min-h-11 text-sm text-muted-foreground" onClick={openBody}>+ Add description</button> : null}
+      <div className={cn("flex items-center justify-end gap-2", !compact && "pointer-fine:hidden")}>
+        <Button type="button" variant="ghost" className="h-11 rounded-lg" onClick={cancel}>{guard.armed ? "Discard draft" : "Cancel"}</Button>
+        <Button type="button" className="h-11 rounded-lg" disabled={draft.title.trim() === ""} onClick={save}>Create issue</Button>
+      </div>
       <div className="mt-0.5 flex gap-3">
         {draft.error ? (
           <FieldHint tone="error">{draft.error}</FieldHint>
         ) : guard.armed ? (
-          <FieldHint tone="error">esc again to discard</FieldHint>
-        ) : (
+          <FieldHint tone="error">{compact ? "Tap Discard draft to confirm." : "esc again to discard"}</FieldHint>
+        ) : !compact ? (
           <FieldHint>
             {draft.showBody
               ? "ctrl-o or ⌘enter to save · esc to cancel"
               : "enter to save · ⇧enter or ctrl-o to add a body · esc to cancel"}
           </FieldHint>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -153,6 +164,14 @@ export function TitleEditor({
           })
         }
       />
+      <div className="flex pointer-fine:hidden">
+        <Button type="button" variant="ghost" className="h-11 px-2" onClick={() => {
+          const title = value.trim();
+          if (title === "" || title === initial) onCancel();
+          else onSave(title);
+        }}>Save</Button>
+        <Button type="button" variant="ghost" className="h-11 px-2" onClick={() => guard.cancel(value.trim() !== initial)}>{guard.armed ? "Discard" : "Cancel"}</Button>
+      </div>
       {guard.armed ? <FieldHint tone="error">esc again to discard</FieldHint> : null}
     </div>
   );
@@ -179,7 +198,7 @@ export function FilterBar({
     if (autoFocus) ref.current?.focus();
   }, [autoFocus, focusNonce]);
   return (
-    <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-3">
+    <div className="flex min-h-8 pointer-coarse:min-h-11 shrink-0 items-center gap-2 border-b border-border px-3">
       <span className="font-mono text-xs text-muted-foreground">/</span>
       <LineInput
         ref={ref}
@@ -190,6 +209,8 @@ export function FilterBar({
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => fieldKeyDown(event, "line", { submit: onAccept, cancel: onClear })}
       />
+      <Button type="button" variant="ghost" className="h-11 px-2 pointer-fine:hidden" onClick={onClear}>Clear</Button>
+      <Button type="button" variant="ghost" className="h-11 px-2 pointer-fine:hidden" onClick={onAccept}>Done</Button>
     </div>
   );
 }
@@ -288,6 +309,10 @@ export function LabelBar({
             fieldKeyDown(event, "line", { submit: apply, cancel: () => guard.cancel(value.trim() !== "") });
           }}
         />
+      </div>
+      <div className="mt-1 flex gap-2 pointer-fine:hidden">
+        <Button type="button" className="h-11" onClick={apply}>Apply</Button>
+        <Button type="button" variant="ghost" className="h-11" onClick={() => guard.cancel(value.trim() !== "")}>{guard.armed ? "Discard" : "Cancel"}</Button>
       </div>
       <div className="mt-1">
         {guard.armed ? (
