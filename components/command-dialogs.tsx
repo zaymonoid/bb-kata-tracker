@@ -2,7 +2,7 @@
 // "Kata: open issue…" asks for a ref and opens it (thread panel in a
 // thread, else the nav page); "Kata: link issue to this thread" reuses the
 // thread header's typeahead. Mounted once as an app overlay.
-import { useState, useSyncExternalStore } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
@@ -12,11 +12,11 @@ import type { KataRpcContract } from "@/lib/rpc-contract";
 import { REF_HINT, tryParseRef } from "@/lib/refs";
 import { useThreadBinding } from "@/hooks/useThreadBinding";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { LinkPicker } from "@/components/thread-header";
+import { KataThreadHeader, LinkPicker } from "@/components/thread-header";
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-function OpenIssueForm({ dialog, onDone }: { dialog: Extract<CommandDialog, { kind: "open" }>; onDone: () => void }) {
+function OpenIssueForm({ dialog, onDone }: { dialog: Extract<CommandDialog, { kind: "open" }>; onDone: (afterClose?: () => void) => void }) {
   const rpc = useRpc<KataRpcContract>();
   const navigate = useBbNavigate();
   const [text, setText] = useState("");
@@ -36,8 +36,7 @@ function OpenIssueForm({ dialog, onDone }: { dialog: Extract<CommandDialog, { ki
       .then(
         ({ issue, reason }) => {
           if (issue === null) return setError(reason ?? "not found");
-          onDone();
-          openIssue(targetOf(issue), { openPanel: dialog.openPanel, navigate });
+          onDone(() => { openIssue(targetOf(issue), { openTab: dialog.openTab, navigate }); });
         },
         (failure: unknown) => setError(errorText(failure)),
       )
@@ -73,7 +72,7 @@ function OpenIssueForm({ dialog, onDone }: { dialog: Extract<CommandDialog, { ki
   );
 }
 
-function LinkIssueForm({ threadId, onDone }: { threadId: string; onDone: () => void }) {
+function LinkIssueForm({ threadId, onDone }: { threadId: string; onDone: (afterClose?: () => void) => void }) {
   const rpc = useRpc<KataRpcContract>();
   const { binding, error } = useThreadBinding(threadId);
   const project = binding?.kataProject ?? null;
@@ -95,16 +94,25 @@ function LinkIssueForm({ threadId, onDone }: { threadId: string; onDone: () => v
 
 export function CommandDialogs() {
   const dialog = useSyncExternalStore(commandDialogStore.subscribe, commandDialogStore.get);
-  const close = () => commandDialogStore.set(null);
+  const afterClose = useRef<(() => void) | undefined>(undefined);
+  const close = (action?: () => void) => {
+    afterClose.current = action;
+    commandDialogStore.set(null);
+  };
   return (
     <Dialog open={dialog !== null} onOpenChange={(open) => !open && close()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" onAfterCloseAutoFocus={() => {
+        const action = afterClose.current;
+        afterClose.current = undefined;
+        action?.();
+      }}>
         <DialogHeader>
-          <DialogTitle>{dialog?.kind === "link" ? "Link a kata issue to this thread" : "Open kata issue"}</DialogTitle>
+          <DialogTitle>{dialog?.kind === "manage" ? "Kata" : dialog?.kind === "link" ? "Link a kata issue to this thread" : "Open kata issue"}</DialogTitle>
           <DialogDescription>
-            {dialog?.kind === "link" ? "Search the thread's kata project." : "Type a ref: abc4, project#abc4, or an issue ULID."}
+            {dialog?.kind === "manage" ? "Manage this thread’s linked issue." : dialog?.kind === "link" ? "Search the thread's kata project." : "Type a ref: abc4, project#abc4, or an issue ULID."}
           </DialogDescription>
         </DialogHeader>
+        {dialog?.kind === "manage" ? <KataThreadHeader threadId={dialog.threadId} openTab={dialog.openTab} onDone={close} /> : null}
         {dialog?.kind === "open" ? <OpenIssueForm dialog={dialog} onDone={close} /> : null}
         {dialog?.kind === "link" ? <LinkIssueForm threadId={dialog.threadId} onDone={close} /> : null}
       </DialogContent>

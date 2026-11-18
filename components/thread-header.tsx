@@ -1,26 +1,23 @@
-// The thread header control for kata-bound threads: one 28px button showing
-// the bound kata project, or the linked issue (`project#abc4` + priority).
-// Its popover shows the linked issue and offers the panel, linking (with a
-// typeahead over the project's open issues) and unlinking.
-// Renders nothing when the thread's project is not kata-bound.
+// Management dialog opened by the Kata header action: linked issue details,
+// issue panel navigation, linking, and unlinking.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   experimental_Icon as HostIcon,
   useBbNavigate,
   useRpc,
-  type PluginThreadHeaderActionProps,
+  type ExperimentalOpenTabOptions,
 } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { KataIssue } from "@/lib/kata-types";
 import type { KataRpcContract } from "@/lib/rpc-contract";
 import { useThreadBinding } from "@/hooks/useThreadBinding";
 import { cn } from "@/lib/utils";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+
 import { PriorityChip, StatusGlyph } from "@/components/issue-bits";
 
 export { ISSUES_ACTION_ID } from "@/lib/issue-open";
-import { ISSUES_ACTION_ID, openIssue } from "@/lib/issue-open";
+import { ISSUES_TAB, openIssue } from "@/lib/issue-open";
 import { requestScopedOpen } from "@/lib/viewer-store";
 const MAX_MATCHES = 8;
 
@@ -152,48 +149,43 @@ function MenuButton({ onClick, children, disabled }: { onClick: () => void; chil
   );
 }
 
-export function KataThreadHeader({ threadId, isCompactViewport }: PluginThreadHeaderActionProps) {
+export function KataThreadHeader({ threadId, openTab, onDone }: {
+  threadId: string;
+  openTab: (options: ExperimentalOpenTabOptions) => boolean;
+  onDone: (afterClose?: () => void) => void;
+}) {
   const rpc = useRpc<KataRpcContract>();
   const navigate = useBbNavigate();
-  const { binding, accept } = useThreadBinding(threadId);
-  const [open, setOpen] = useState(false);
+  const { binding, error, accept } = useThreadBinding(threadId);
+
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
-  /** Set while opening the panel, so closing the popover leaves focus to it. */
-  const openingPanel = useRef(false);
-
-  useEffect(() => {
-    if (!open) setPicking(false);
-  }, [open]);
 
   const project = binding?.kataProject;
-  if (!binding || !project) return null;
+  if (!binding) return <p className="text-sm text-muted-foreground">{error ?? "Loading…"}</p>;
+  if (!project) return <p className="text-sm text-muted-foreground">This thread has no bound Kata project.</p>;
   const link = binding.link;
 
   // The whole project's issues: the list, with the linked issue selected.
-  const openPanel = () => {
-    openingPanel.current = true;
+  const openIssues = () => {
     requestScopedOpen(null);
-    setOpen(false);
-    if (!navigate.openThreadPanel({ actionId: ISSUES_ACTION_ID, title: `Kata · ${project.name}` })) {
-      openingPanel.current = false;
-      toast.error("This view has no thread side panel");
-    }
+    onDone(() => {
+      if (!openTab({ tab: ISSUES_TAB, title: `Kata · ${project.name}` })) {
+        toast.error("This view has no thread side panel");
+      }
+    });
   };
 
   // The linked issue itself: its detail, like an issue chip.
   const openLinkedIssue = () => {
     if (!link) return;
-    openingPanel.current = true;
-    setOpen(false);
-    const where = openIssue(
-      { issueUid: link.issueUid, projectUid: link.projectUid, qualifiedId: link.qualifiedId },
-      { openPanel: (options) => navigate.openThreadPanel(options), navigate },
-    );
-    if (where === "none") {
-      openingPanel.current = false;
-      toast.error("This view has no thread side panel");
-    }
+    onDone(() => {
+      const where = openIssue(
+        { issueUid: link.issueUid, projectUid: link.projectUid, qualifiedId: link.qualifiedId },
+        { openTab, navigate },
+      );
+      if (where === "none") toast.error("This view has no thread side panel");
+    });
   };
 
   const linkIssue = (issue: KataIssue) => {
@@ -202,7 +194,7 @@ export function KataThreadHeader({ threadId, isCompactViewport }: PluginThreadHe
       (result) => {
         accept(result);
         setPicking(false);
-        setOpen(false);
+        onDone();
         toast.success(`Linked ${issue.qualified_id}`);
       },
       (error: unknown) => toast.error(`Link failed: ${errorText(error)}`),
@@ -214,92 +206,58 @@ export function KataThreadHeader({ threadId, isCompactViewport }: PluginThreadHe
     rpc.call("thread.unlinkIssue", { threadId }).then(
       (result) => {
         accept(result);
-        setOpen(false);
+        onDone();
       },
       (error: unknown) => toast.error(`Unlink failed: ${errorText(error)}`),
     ).finally(() => setBusy(false));
   };
 
-  const label = link ? link.qualifiedId : project.name;
-  const accessibleName = link
-    ? `Kata: linked to ${link.qualifiedId}${link.title ? ` ${link.title}` : ""}`
-    : `Kata project ${project.name}`;
-
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={accessibleName}
-          title={link?.title ? `${link.qualifiedId} · ${link.title}` : accessibleName}
-          className="inline-flex h-7 max-w-56 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <KataIcon />
-          {isCompactViewport ? null : (
-            <>
-              <span className={cn("truncate", link && "font-mono")}>{label}</span>
-              {link?.priority != null ? <PriorityChip priority={link.priority} /> : null}
-            </>
-          )}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        className="w-80 p-2"
-        mobileTitle="Kata"
-        onCloseAutoFocus={(event) => {
-          if (!openingPanel.current) return;
-          openingPanel.current = false;
-          event.preventDefault();
-        }}
-      >
-        <div className="flex flex-col gap-1">
-          <div className="px-2 pb-1 pt-0.5">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <KataIcon className="size-3" />
-              <span className="truncate">{project.name}</span>
-            </div>
-            {link ? (
-              <button
-                type="button"
-                onClick={openLinkedIssue}
-                title="open in the Kata panel"
-                className="mt-1.5 flex w-full items-start gap-1.5 rounded-md p-1 text-left hover:bg-muted"
-              >
-                <StatusGlyph status={link.status ?? "open"} className="mt-1" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-xs">{link.qualifiedId}</span>
-                    {link.priority != null ? <PriorityChip priority={link.priority} /> : null}
-                    {link.status && link.status !== "open" ? (
-                      <span className="text-xs text-muted-foreground">{link.status}</span>
-                    ) : null}
-                  </div>
-                  <p className="mt-0.5 line-clamp-3 text-sm">{link.title ?? "(issue could not be read)"}</p>
-                </div>
-              </button>
-            ) : (
-              <p className="mt-1 text-xs text-muted-foreground">No issue linked to this thread.</p>
-            )}
-          </div>
-          <div className="h-px bg-border" />
-          {picking ? (
-            <LinkPicker projectUid={project.uid} onPick={linkIssue} onCancel={() => setPicking(false)} />
-          ) : (
-            <>
-              <MenuButton onClick={openPanel}>Open Kata issues</MenuButton>
-              <MenuButton onClick={() => setPicking(true)} disabled={busy}>
-                {link ? "Link a different issue…" : "Link issue…"}
-              </MenuButton>
-              {link ? (
-                <MenuButton onClick={unlink} disabled={busy}>
-                  Unlink
-                </MenuButton>
-              ) : null}
-            </>
-          )}
+    <div className="flex flex-col gap-1">
+      <div className="px-2 pb-1 pt-0.5">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <KataIcon className="size-3" />
+          <span className="truncate">{project.name}</span>
         </div>
-      </PopoverContent>
-    </Popover>
+        {link ? (
+          <button
+            type="button"
+            onClick={openLinkedIssue}
+            title="open in the Kata panel"
+            className="mt-1.5 flex w-full items-start gap-1.5 rounded-md p-1 text-left hover:bg-muted"
+          >
+            <StatusGlyph status={link.status ?? "open"} className="mt-1" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-xs">{link.qualifiedId}</span>
+                {link.priority != null ? <PriorityChip priority={link.priority} /> : null}
+                {link.status && link.status !== "open" ? (
+                  <span className="text-xs text-muted-foreground">{link.status}</span>
+                ) : null}
+              </div>
+              <p className="mt-0.5 line-clamp-3 text-sm">{link.title ?? "(issue could not be read)"}</p>
+            </div>
+          </button>
+        ) : (
+          <p className="mt-1 text-xs text-muted-foreground">No issue linked to this thread.</p>
+        )}
+      </div>
+      <div className="h-px bg-border" />
+      {picking ? (
+        <LinkPicker projectUid={project.uid} onPick={linkIssue} onCancel={() => setPicking(false)} />
+      ) : (
+        <>
+          <MenuButton onClick={openIssues}>Open Kata issues</MenuButton>
+          <MenuButton onClick={() => setPicking(true)} disabled={busy}>
+            {link ? "Link a different issue…" : "Link issue…"}
+          </MenuButton>
+          {link ? (
+            <MenuButton onClick={unlink} disabled={busy}>
+              Unlink
+            </MenuButton>
+          ) : null}
+        </>
+      )}
+    </div>
   );
 }

@@ -10,7 +10,7 @@ import type {
   BbNavigate,
   PluginComposerApi,
   PluginRpcClient,
-  PluginTargetedPanelActionOpenOptions,
+  ExperimentalOpenTabOptions,
 } from "@get-bb/plugin-sdk/app";
 import type { IssueSummary, KataRpcContract } from "./rpc-contract";
 import type { IssueTarget } from "./refs";
@@ -18,6 +18,11 @@ import { patch, requestNavIssue, requestPanelFocus, requestScopedOpen } from "./
 
 export const PANEL_PATH = "kata";
 export const ISSUES_ACTION_ID = "issues";
+export const ISSUES_TAB = {
+  id: ISSUES_ACTION_ID,
+  context: { kind: "thread" },
+  availability: "action",
+} as const;
 
 export const bridge: {
   navigate: BbNavigate | null;
@@ -62,9 +67,9 @@ export const targetOf = (issue: IssueSummary): IssueTarget => ({
   qualifiedId: issue.qualifiedId,
 });
 
-export function panelOptions(target: IssueTarget): PluginTargetedPanelActionOpenOptions {
+export function panelOptions(target: IssueTarget): ExperimentalOpenTabOptions {
   return {
-    actionId: ISSUES_ACTION_ID,
+    tab: ISSUES_TAB,
     title: `Kata · ${target.qualifiedId ?? "issue"}`,
     params: { issueUid: target.issueUid, projectUid: target.projectUid, qualifiedId: target.qualifiedId },
   };
@@ -73,13 +78,13 @@ export function panelOptions(target: IssueTarget): PluginTargetedPanelActionOpen
 /** Where the issue opened. */
 export function openIssue(
   target: IssueTarget,
-  via: { openPanel?: ((options: PluginTargetedPanelActionOpenOptions) => boolean) | null; navigate?: BbNavigate | null },
+  via: { openTab?: ((options: ExperimentalOpenTabOptions) => boolean) | null; navigate?: BbNavigate | null },
 ): "panel" | "nav" | "none" {
-  if (via.openPanel) {
+  if (via.openTab) {
     // Opened on purpose: the panel takes keyboard focus when it mounts (or is
     // already open) and lands on this issue's detail.
     requestScopedOpen(target);
-    if (via.openPanel(panelOptions(target))) return "panel";
+    if (via.openTab(panelOptions(target))) return "panel";
     patch({ scopedOpen: null });
   }
   const navigate = via.navigate ?? bridge.navigate;
@@ -97,9 +102,10 @@ export type CommandDialog =
       kind: "open";
       threadId: string | null;
       projectId: string | null;
-      openPanel: ((options: PluginTargetedPanelActionOpenOptions) => boolean) | null;
+      openTab: ((options: ExperimentalOpenTabOptions) => boolean) | null;
     }
-  | { kind: "link"; threadId: string };
+  | { kind: "link"; threadId: string }
+  | { kind: "manage"; threadId: string; openTab: (options: ExperimentalOpenTabOptions) => boolean };
 
 let dialog: CommandDialog | null = null;
 const listeners = new Set<() => void>();

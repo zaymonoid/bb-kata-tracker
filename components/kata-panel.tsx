@@ -18,7 +18,7 @@ import {
 } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
-  experimental_useSidebarThreadActions,
+  useBbNavigate,
   useComposer,
   useRealtime,
   useRealtimeConnectionState,
@@ -194,7 +194,7 @@ function storedFraction(): number | null {
 export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}) {
   const rpc = useRpc<KataRpcContract>();
   const composer = useComposer();
-  const threadActions = experimental_useSidebarThreadActions();
+  const navigate = useBbNavigate();
   const scopedUid = scope?.projectUid ?? null;
   const view = useSyncExternalStore(viewerStore.subscribe, viewerStore.get);
   const [pane, setPane] = useState<Pane>("list");
@@ -251,6 +251,12 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
     void loadList(rpc, scopedUid);
   }, [rpc, scopedUid]);
   useEffect(revalidate, [revalidate]);
+
+  // Opening the picker rescans kata's projects, so workspaces created since
+  // mount (`kata init`) show up. The cached list renders meanwhile.
+  useEffect(() => {
+    if (pickerOpen) void loadProjects(rpc);
+  }, [rpc, pickerOpen]);
 
   useEffect(() => (scopedUid === null ? undefined : pinProject(rpc, scopedUid)), [rpc, scopedUid]);
 
@@ -778,8 +784,8 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
           // Kata page: this composer is the new-thread draft, so the project
           // is decided before the navigation.
           const blank = isBlankDraft(composer.text);
-          composer.updateText((current) => mergeDraft(current, line));
-          threadActions.openNewThread(blank ? { projectId, focusPrompt: true } : { focusPrompt: true });
+          composer.replace((current) => ({ ...current, text: mergeDraft(current.text, line) }));
+          navigate.toCompose(blank ? { projectId, focusPrompt: true } : { focusPrompt: true });
           return blank ? toastNew() : toastAdded();
         }
         // Thread panel: this composer is the host thread's draft, and the
@@ -789,16 +795,16 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
         // opens the screen again with the project: the overlay is outside any
         // composer, so its `experimental_setSelection` rejects.
         // (`toCompose({initialPrompt})` only seeds an empty draft.)
-        threadActions.openNewThread({ focusPrompt: true });
+        navigate.toCompose({ focusPrompt: true });
         void newThreadComposer().then((target) => {
           if (target === null) return void toast.error("New-thread composer unreachable");
           const blank = isBlankDraft(target.text);
-          target.updateText((current) => mergeDraft(current, line));
+          target.replace((current) => ({ ...current, text: mergeDraft(current.text, line) }));
           if (!blank) {
             target.focus();
             return void toastAdded();
           }
-          threadActions.openNewThread({ projectId, focusPrompt: true });
+          navigate.toCompose({ projectId, focusPrompt: true });
           toastNew();
         });
       },
@@ -1446,6 +1452,7 @@ export function KataPanel({ scope }: { scope?: KataPanelScope | undefined } = {}
           editable={view.daemon.available && (pane !== "detail" || (selectedUid !== null && !isPlaceholder(selectedUid)))}
           scoped={scope !== undefined}
           statusView={statusView}
+          sort={view.sort}
           onCommand={(command) => run(command, pane)}
         />
       ) : null}

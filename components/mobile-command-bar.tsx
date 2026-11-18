@@ -1,17 +1,18 @@
 import { useRef, useState } from "react";
 import type { KataIssue } from "@/lib/kata-types";
 import type { KeyCommand } from "@/lib/keymap";
-import { cn } from "@/lib/utils";
+import type { SortMode } from "@/lib/tree";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 /** Thumb-reachable primary actions; secondary actions belong to the issue sheet. */
-export function MobileCommandBar({ issue, editable, scoped, statusView, onCommand }: {
+export function MobileCommandBar({ issue, editable, scoped, statusView, sort, onCommand }: {
   issue: KataIssue | null;
   editable: boolean;
   scoped: boolean;
   statusView: "open" | "closed" | "all";
+  sort: SortMode;
   onCommand: (command: KeyCommand) => void;
 }) {
   const [sheet, setSheet] = useState<"priority" | "more" | null>(null);
@@ -32,7 +33,7 @@ export function MobileCommandBar({ issue, editable, scoped, statusView, onComman
   );
   return (
     <div className="shrink-0 border-t border-border/60 bg-background px-3 py-2" role="group" aria-label={issue ? `Commands for ${issue.short_id}` : "Issue list commands"} onKeyDown={(event) => event.stopPropagation()}>
-      <div className={cn("items-center gap-2", issue ? "grid grid-cols-4" : "flex")}>
+      <div className="grid grid-cols-4 items-center gap-2">
         {issue ? <>
           <Button type="button" variant="ghost" className="h-14 min-w-0 flex-1 flex-col gap-1 rounded-xl px-1 text-xs" disabled={!editable} aria-label={`Change priority (${issue.priority === null ? "none" : `P${issue.priority}`})`} aria-haspopup="dialog" aria-expanded={sheet === "priority"} onClick={() => setSheet("priority")}>
             <span className="flex h-5 items-center font-mono text-sm font-semibold">{issue.priority === null ? "–" : `P${issue.priority}`}</span>
@@ -46,9 +47,10 @@ export function MobileCommandBar({ issue, editable, scoped, statusView, onComman
           </Button>
           <Button type="button" variant="ghost" className="h-14 min-w-0 flex-col gap-1 rounded-xl px-1 text-xs" aria-label="More issue actions" aria-haspopup="dialog" aria-expanded={sheet === "more"} onClick={() => setSheet("more")}><span className="flex h-5 items-center"><Icon name="MoreHorizontal" /></span>More</Button>
         </> : <>
-          <Button type="button" variant="ghost" className="h-11 rounded-xl px-3 capitalize" aria-label={`Showing ${statusView} issues; change status filter`} onClick={() => onCommand({ type: "cycleStatus" })}><Icon name="ListTodo" />{statusView}</Button>
-          <Button type="button" variant="ghost" className="size-11 rounded-xl p-0" aria-label="Filter issues" onClick={() => onCommand({ type: "search" })}><Icon name="Search" /></Button>
-          <Button type="button" className="ml-auto h-11 rounded-xl px-5" disabled={!editable} onClick={() => onCommand({ type: "newIssue" })}><span aria-hidden className="text-lg leading-none">+</span> New issue</Button>
+          <Button type="button" variant="ghost" className="h-14 min-w-0 flex-col gap-1 rounded-xl px-1 text-xs capitalize" aria-label={`Showing ${statusView} issues; change status filter`} onClick={() => onCommand({ type: "cycleStatus" })}><Icon name="ListTodo" />{statusView}</Button>
+          <Button type="button" variant="ghost" className="h-14 min-w-0 flex-col gap-1 rounded-xl px-1 text-xs" aria-label="Filter issues" onClick={() => onCommand({ type: "search" })}><Icon name="Search" />Filter</Button>
+          <Button type="button" variant={sort === "priority" ? "secondary" : "ghost"} className="h-14 min-w-0 flex-col gap-1 rounded-xl px-1 text-xs" aria-label={`Sort by priority; current order: ${sort}`} aria-pressed={sort === "priority"} onClick={() => onCommand({ type: "toggleSort" })}><span aria-hidden className="flex h-5 items-center text-base">↕</span>{sort === "priority" ? "Priority" : "Default"}</Button>
+          <Button type="button" className="h-14 min-w-0 flex-col gap-1 rounded-xl px-1 text-xs" disabled={!editable} onClick={() => onCommand({ type: "newIssue" })}><span aria-hidden className="flex h-5 items-center text-lg leading-none">+</span> New issue</Button>
         </>}
       </div>
       {issue ? (

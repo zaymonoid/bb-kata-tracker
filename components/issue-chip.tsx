@@ -5,7 +5,7 @@
 // Attributes are untrusted: lib/refs.ts validates them and
 // the server resolves the ref before anything is shown.
 import { useMemo } from "react";
-import { useBbNavigate, type PluginMessageDirectiveProps } from "@get-bb/plugin-sdk/app";
+import { experimental_useAppPanel, useBbNavigate, type PluginMessageDirectiveProps } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { formatRef, parseIssueDirective } from "@/lib/refs";
 import { openIssue, targetOf } from "@/lib/issue-open";
@@ -48,10 +48,11 @@ export function IssueChipDirective({ attributes, message }: PluginMessageDirecti
 
 export function IssueChip({ issue }: { issue: IssueSummary }) {
   const navigate = useBbNavigate();
+  const panel = experimental_useAppPanel();
   const closed = issue.status !== "open";
 
   const open = () => {
-    const where = openIssue(targetOf(issue), { openPanel: (options) => navigate.openThreadPanel(options), navigate });
+    const where = openIssue(targetOf(issue), { openTab: (options) => panel.openTab(options), navigate });
     if (where === "none") toast.error("Could not open the Kata panel here");
   };
   const copy = () => {

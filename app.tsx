@@ -18,7 +18,7 @@ import { useEffect } from "react";
 import { definePluginApp, useBbNavigate, useComposer, useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { KataPanel } from "@/components/kata-panel";
-import { KataThreadHeader } from "@/components/thread-header";
+import { useHeaderBindings } from "@/hooks/useHeaderBindings";
 import { ThreadIssuesPanel } from "@/components/thread-issues-panel";
 import { IssueChipDirective } from "@/components/issue-chip";
 import { CommandDialogs } from "@/components/command-dialogs";
@@ -26,6 +26,7 @@ import {
   bridge,
   commandDialogStore,
   ISSUES_ACTION_ID,
+  ISSUES_TAB,
   openIssue,
   PANEL_PATH,
   setBridgeComposer,
@@ -68,18 +69,37 @@ export default definePluginApp((app) => {
     component: () => <KataPanel />,
   });
 
-  app.slots.experimental_threadHeaderAction({
+  app.slots.experimental_threadAction({
     id: "kata",
     title: "Kata",
-    component: KataThreadHeader,
+    icon: "ListTodo",
+    group: "kata",
+    placement: "header",
+    useData: ({ threadIds }) => useHeaderBindings(threadIds),
+    item: ({ thread, data, experimental_panel }) => {
+      const binding = data.get(thread.id);
+      if (!binding?.kataProject) return null;
+      return {
+        label: binding.link?.qualifiedId ?? binding.kataProject.name,
+        detail: binding.link?.title ?? "Kata issues",
+        icon: "ListTodo",
+        run: () => commandDialogStore.set({
+          kind: "manage", threadId: thread.id,
+          openTab: (options) => experimental_panel.openTab(options),
+        }),
+      };
+    },
   });
 
-  app.slots.threadPanelAction({
+  app.slots.experimental_tab({
+    context: { kind: "thread" },
+    availability: "action",
     id: ISSUES_ACTION_ID,
     title: "Kata issues",
     icon: "ListTodo",
     layout: "flush",
     component: ThreadIssuesPanel,
+    run: ({ experimental_panel }) => { experimental_panel.openTab({ tab: ISSUES_TAB }); },
   });
 
   app.slots.messageDirective({ id: "kata-issue", component: IssueChipDirective });
@@ -88,7 +108,7 @@ export default definePluginApp((app) => {
     id: "open-issue",
     title: "Kata: open issue from selection",
     icon: "ListTodo",
-    run: async ({ threadId, message, selectedText, openPanel }) => {
+    run: async ({ threadId, message, selectedText, experimental_panel }) => {
       // From the action bar (no selection) the whole message is searched.
       const source = selectedText ?? message.text;
       const where = selectedText !== undefined ? "selection" : "message";
@@ -102,7 +122,7 @@ export default definePluginApp((app) => {
           const explicit = refs.find((ref) => ref.includes("#") || ref.length === 26);
           return void toast(`No kata ref in ${where}${explicit ? ` (${explicit}: ${reason ?? "not found"})` : ""}`);
         }
-        openIssue(targetOf(issue), { openPanel });
+        openIssue(targetOf(issue), { openTab: (options) => experimental_panel.openTab(options) });
       } catch (error) {
         toast.error(`Kata lookup failed: ${errorText(error)}`);
       }
@@ -126,8 +146,8 @@ export default definePluginApp((app) => {
   app.commands.register({
     id: "open-issue",
     title: "Kata: open issue…",
-    run: ({ threadId, projectId, openPanel }) => {
-      commandDialogStore.set({ kind: "open", threadId, projectId, openPanel: threadId ? openPanel : null });
+    run: ({ threadId, projectId, experimental_panel }) => {
+      commandDialogStore.set({ kind: "open", threadId, projectId, openTab: threadId ? (options) => experimental_panel.openTab(options) : null });
     },
   });
 

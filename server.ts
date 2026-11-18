@@ -460,6 +460,10 @@ export default async function plugin(bb: BbPluginApi) {
     "binding.forProject": async ({ projectId }) => bindingOut(await bindings.forProject(projectId)),
     "binding.forKataProject": async ({ projectUid }) => ({ projects: await service.boundBy(projectUid) }),
     "binding.forThread": ({ threadId }) => threadBinding(threadId),
+    "binding.forThreads": ({ threadIds }) => Promise.all([...new Set(threadIds)].map(async (threadId) => ({
+      threadId,
+      binding: await threadBinding(threadId).catch(() => null),
+    }))),
     "thread.linkIssue": async ({ threadId, projectUid, ref }) => {
       await service.link(threadId, { project: projectUid, usage: "thread.linkIssue" }, ref);
       return threadBinding(threadId);

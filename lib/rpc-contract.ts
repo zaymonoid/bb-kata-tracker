@@ -153,6 +153,11 @@ export const rpcContract = defineRpcContract({
     input: z.object({ threadId: bbId }).strict(),
     output: threadBindingSchema,
   },
+  /** Bindings for visible thread headers, fetched together. */
+  "binding.forThreads": {
+    input: z.object({ threadIds: z.array(bbId).max(100) }).strict(),
+    output: z.array(z.object({ threadId: bbId, binding: threadBindingSchema.nullable() })),
+  },
   /** Link an issue to the thread (stored in this plugin's thread metadata). */
   "thread.linkIssue": {
     input: z.object({ threadId: bbId, projectUid, ref }).strict(),
